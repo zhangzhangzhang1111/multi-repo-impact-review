@@ -1,0 +1,10 @@
+{
+  "name": "codebase-memory-mcp",
+  "version": "0.10.2",
+  "tag": "v0.10.2",
+  "repository": "https://github.com/DeusData/codebase-memory-mcp",
+  "release": "https://github.com/DeusData/codebase-memory-mcp/releases/tag/v0.10.2",
+  "license": "MIT",
+  "integration": "Unmodified official release executable; invoked through the documented MCP/CLI interface.",
+  "verifiedWith": "vendor/codebase-memory-mcp/upstream-checksums.txt"
+}

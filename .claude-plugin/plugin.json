@@ -1,0 +1,11 @@
+{
+  "name": "multi-repo-impact-review",
+  "version": "2.0.0",
+  "description": "Offline multi-language code impact review powered by the open-source codebase-memory-mcp knowledge graph.",
+  "author": {
+    "name": "Multi-Repo Impact Review Maintainers"
+  },
+  "license": "MIT",
+  "keywords": ["code-review", "impact-analysis", "lua", "cpp", "offline"],
+  "mcpServers": "./.mcp.json"
+}

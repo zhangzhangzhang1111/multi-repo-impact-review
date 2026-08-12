@@ -1,0 +1,4 @@
+interface:
+  display_name: "Multi-Repo Impact Review"
+  short_description: "Offline multi-language code and business impact review"
+  default_prompt: "Use $multi-repo-impact-review to review this change and verify its cross-language, cross-repository, and business impact."

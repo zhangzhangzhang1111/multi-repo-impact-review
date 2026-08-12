@@ -1,0 +1,11 @@
+{
+    "schema_version": 2,
+    "commit": "2c9bee33b0b2a4708ae9416797ffa8a57cb2fc85",
+    "indexed_at": "2026-08-12T06:35:06Z",
+    "project": "scriptswtlua-2c9bee33b0b2",
+    "nodes": 3274,
+    "edges": 15000,
+    "original_size": 12910592,
+    "compressed_size": 2682566,
+    "compression_level": 9
+}

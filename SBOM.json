@@ -1,0 +1,17 @@
+{
+  "format": "CycloneDX-inspired-minimal",
+  "schemaVersion": 1,
+  "components": [
+    {
+      "name": "codebase-memory-mcp",
+      "version": "0.10.2",
+      "type": "native-application",
+      "license": "MIT",
+      "source": "https://github.com/DeusData/codebase-memory-mcp/releases/tag/v0.10.2",
+      "upstreamSbom": "vendor/codebase-memory-mcp/upstream-sbom.json",
+      "upstreamNotices": "vendor/codebase-memory-mcp/THIRD_PARTY_NOTICES.md"
+    }
+  ],
+  "requiredSystemTools": ["git", "POSIX shell on macOS/Linux or PowerShell 5+ on Windows"],
+  "networkRequired": false
+}

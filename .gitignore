@@ -1,0 +1,6 @@
+.DS_Store
+.codebase-memory/
+analysis-source/
+runtime/*/codebase-memory-mcp
+runtime/*/codebase-memory-mcp.exe
+*.tmp

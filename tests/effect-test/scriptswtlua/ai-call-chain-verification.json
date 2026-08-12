@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "project": "scriptswtlua-2c9bee33b0b2",
+  "engine": {
+    "name": "codebase-memory-mcp",
+    "version": "0.10.2"
+  },
+  "policy": {
+    "startDepth": 1,
+    "effectiveMaxDepth": 2,
+    "hardMaxDepth": 4,
+    "perTraceLimit": 30,
+    "globalUniqueNodeBudget": 120,
+    "observedUniqueCoreNodes": 5,
+    "truncated": false
+  },
+  "changedSymbols": [
+    {
+      "name": "RZRQDBPMRTradeConfirm",
+      "graphInboundAtDepth1": 0,
+      "verification": "missing-added",
+      "dynamicCaller": "DoSubProcessFunction_RongZiRongQuan",
+      "dispatchEvidence": "deploy/project/RongZiRongQuan/HandleClientReqsub_RongZiRongQuan.lua:399-401,604"
+    },
+    {
+      "name": "RZRQDBPMCTradeConfirm",
+      "graphInboundAtDepth1": 0,
+      "verification": "missing-added",
+      "dynamicCaller": "DoSubProcessFunction_RongZiRongQuan",
+      "dispatchEvidence": "deploy/project/RongZiRongQuan/HandleClientReqsub_RongZiRongQuan.lua:467-469,604"
+    }
+  ],
+  "confirmedUpstream": [
+    {
+      "from": "OnHandleClientReqMsg",
+      "to": "DoSubProcessFunction",
+      "evidence": "deploy/wt_handleclientreq.lua:85",
+      "verification": "confirmed"
+    },
+    {
+      "from": "DoSubProcessFunction",
+      "to": "DoSubProcessFunction_RongZiRongQuan",
+      "evidence": "deploy/project/HandleClientReqsub.lua:46",
+      "verification": "confirmed"
+    }
+  ],
+  "conclusion": "The official graph omitted the two variable-dispatch edges. AI source verification added them; the bounded path reaches the client request entry point without exceeding depth or node budgets."
+}

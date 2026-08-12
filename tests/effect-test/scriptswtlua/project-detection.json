@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 2,
+  "root": "/Users/xilong/Documents/Codex/2026-08-12/arxiv/work/skill-build/test-checkouts/scriptswtlua-2c9",
+  "analysisRoot": "/Users/xilong/Documents/Codex/2026-08-12/arxiv/work/skill-build/test-results/codebase-memory-v2-shell/analysis-source",
+  "remote": "/Users/xilong/Downloads/thswork/scriptswtlua",
+  "commit": "2c9bee33b0b2a4708ae9416797ffa8a57cb2fc85",
+  "matches": [
+    {"kind":"common","id":"code-review-common","priority":0,"knowledge":"project-packs/common/review.md"},
+    {"kind":"family","id":"embedded-lua-services","priority":20,"knowledge":"project-packs/families/embedded-lua-services.md"},
+    {"kind":"project","id":"scriptswtlua","priority":100,"knowledge":"project-packs/projects/scriptswtlua/knowledge/SCRIPTSWTLUA_PROJECT_KNOWLEDGE.md"}
+  ]
+}
