@@ -1,5 +1,35 @@
 # Multi-Repo Impact Review v2.0.0 验证报告
 
+## v2.3.0 本地与远程 Git 输入验证
+
+- 支持在现有项目目录内通过 `--repo .` 评审 Git 变更，输出仍强制放在仓库外，避免污染目标项目。
+- 支持通过 `--git-url` 和 `--branch` 克隆远程分支；完整历史保留在 `codegraph/input-repository`，可使用 `origin/main` 等远端基线。
+- 远程 URL 仅在用户显式选择时访问网络；本地 Git、dirty worktree 和 patch 模式继续离线运行。
+- Shell 与 PowerShell 使用一致的互斥、分支选择、输出目录和凭据安全规则。
+- macOS ARM64 打包产物已通过 `file://` 模拟远端的完整流程：克隆指定分支、解析 `origin/main..HEAD`、建立官方图谱并生成 Git 影响证据。
+
+## v2.2.2 模式化知识路由验证
+
+- patch 模式不再依赖原始 Git 地址：`changes.diff` 中任一规范化路径包含 `Transmid/` 即加载 `transmid-lua` 通用知识。
+- patch 模式的专用项目知识按解压后的源码项目目录名匹配；`repo/zy_all/Transmid/...` 会自动将 `zy_all` 解析为源码根，并与 `Transmid/...` 变更路径对齐。
+- Git 模式仅按规范化远端地址匹配项目身份，仍以源码 marker 约束专用知识，避免本机目录名误命中。
+- Shell 和 PowerShell 路由规则保持一致，匹配证据记录实际源码根、配置入口根和项目目录名。
+- Shell 对非 UTF-8、混合换行的 patch 全程按字节解析，避免业务中文注释触发 locale 转换失败。
+
+## v2.2.1 Git patch 路径兼容验证
+
+- 使用真实 `changes.diff` 验证 Git patch 模式；完整识别 5 个 Lua 修改文件和 1 个中文文件名的二进制 Excel 删除记录。
+- Shell 与 PowerShell 解析器均从 `diff --git` 头读取路径，支持 Git 双引号、反斜杠转义和 UTF-8 八进制字节序列。
+- 二进制文件即使没有 `---`、`+++` 和 hunk，也会进入 `changes.json` 与 `changed-files.txt`，并保留 `deleted` 状态。
+- 混合 CRLF/LF 的 patch 输入不影响文件、状态和 hunk 识别。
+
+## v2.2.0 TransMid_Lua 增量验证
+
+- 收录 `transmid.zip` 的 1 个知识地图和 10 个专题文档，并将未经目标源码验证的命令、字段、默认值、路径和处理顺序明确降级为候选知识。
+- 修正知识地图中不存在的 `request-cmd-resolver` 依赖，以及 `_save_old_data_` 的相互矛盾说明。
+- 新增 `*/TransMid_Lua/<broker>/<project>` 家族路由；示例 `.../TransMid_Lua/pingan/zy_all.git` 在 Git 模式和 patch 模式均命中 `common + transmid-lua`，对照路径未误命中。
+- 六个平台 v2.2.0 离线包均通过外层和包内校验和；macOS ARM64 额外通过官方运行时自检。其他平台受当前主机架构限制，未执行原生程序。
+
 ## 结论
 
 六个平台离线包均构建成功并通过压缩包完整性、逐文件校验和、清单和架构检查。macOS ARM64 包完成了实际解压、官方运行时自检、Codex 插件校验、Claude 插件与 marketplace 校验。`scriptswtlua` 的 Shell 与 PowerShell 评审流程均成功，且没有向被评审仓库写入文件。

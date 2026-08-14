@@ -2,38 +2,218 @@
 set -eu
 
 SKILL_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-PLUGIN_ROOT=$(CDPATH= cd -- "$SKILL_DIR/../.." && pwd)
-CBM_LAUNCHER="$PLUGIN_ROOT/runtime/launch-mcp.sh"
-PROJECT_MAP="$PLUGIN_ROOT/project-packs/project-map.tsv"
+if [ -f "$SKILL_DIR/project-packs/project-map.tsv" ]; then
+  PACKAGE_ROOT=$SKILL_DIR
+else
+  PACKAGE_ROOT=$(CDPATH= cd -- "$SKILL_DIR/../.." && pwd)
+fi
 
+CBM_LAUNCHER="$PACKAGE_ROOT/runtime/launch-engine.sh"
+PROJECT_MAP="$PACKAGE_ROOT/project-packs/project-map.tsv"
+DIFF_NORMALIZER="$SKILL_DIR/scripts/normalize-diff.awk"
+REPORT_TEMPLATE="$SKILL_DIR/assets/report-template.md"
+
+TASK_ROOT=""
 REPO=""
-BASE="HEAD~1"
-HEAD_REF="HEAD"
 OUT=""
+REPORT_DIR=""
+MODE=""
+DIFF_FILE=""
+BASE=""
+HEAD_REF=""
+PROJECT_ID=""
+REPOSITORY_ID=""
+GIT_URL=""
+BRANCH=""
 DEPTH=2
 NODE_BUDGET=120
 TRACE_LIMIT=30
 REBUILD_GRAPH=0
 
+usage() {
+  cat <<'USAGE'
+Usage:
+  run-review.sh --task-root <task_id_dir> [--mode auto|git|patch]
+  run-review.sh --repo <path> --out <codegraph_dir> [--mode git|patch] [options]
+  run-review.sh --git-url <url> [--branch <name>] --out <codegraph_dir> [options]
+
+Options:
+  --git-url <url>      Clone a Git repository before review (network required)
+  --branch <name>      Branch to check out with --git-url (default remote HEAD)
+  --diff <file>         Unified diff for patch mode
+  --base <ref>          Git base ref (default HEAD~1)
+  --head <ref>          Git head ref (default HEAD; WORKTREE is accepted)
+  --report <dir>        Report directory
+  --project-id <id>     Force a project knowledge pack
+  --repository <id>     Original Git URL/name for archive routing
+  --depth <1..4>        Call-chain depth (default 2)
+  --node-budget <n>     Global unique-node budget (default 120, max 400)
+  --trace-limit <n>     Rows per trace/search (default 30, max 100)
+  --rebuild-graph       Ignore a packaged baseline graph
+USAGE
+}
+
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --task-root) TASK_ROOT=$2; shift 2 ;;
     --repo) REPO=$2; shift 2 ;;
+    --out) OUT=$2; shift 2 ;;
+    --report) REPORT_DIR=$2; shift 2 ;;
+    --mode) MODE=$2; shift 2 ;;
+    --diff) DIFF_FILE=$2; shift 2 ;;
     --base) BASE=$2; shift 2 ;;
     --head) HEAD_REF=$2; shift 2 ;;
-    --out) OUT=$2; shift 2 ;;
+    --project-id) PROJECT_ID=$2; shift 2 ;;
+    --repository) REPOSITORY_ID=$2; shift 2 ;;
+    --git-url) GIT_URL=$2; shift 2 ;;
+    --branch) BRANCH=$2; shift 2 ;;
     --depth) DEPTH=$2; shift 2 ;;
     --node-budget) NODE_BUDGET=$2; shift 2 ;;
     --trace-limit) TRACE_LIMIT=$2; shift 2 ;;
     --rebuild-graph) REBUILD_GRAPH=1; shift ;;
-    --path) echo "FATAL: --path is not supported by codebase-memory-mcp detect_changes; review a scoped checkout instead" >&2; exit 2 ;;
-    *) echo "FATAL: unknown option $1" >&2; exit 2 ;;
+    --help|-h) usage; exit 0 ;;
+    --path) echo "FATAL: --path is unsupported; provide a scoped repo/ snapshot instead" >&2; exit 2 ;;
+    *) echo "FATAL: unknown option $1" >&2; usage >&2; exit 2 ;;
   esac
 done
 
-[ -n "$REPO" ] || { echo "FATAL: --repo is required" >&2; exit 2; }
-[ -n "$OUT" ] || { echo "FATAL: --out is required and must be outside the reviewed repository" >&2; exit 2; }
-[ -x "$CBM_LAUNCHER" ] || { echo "FATAL: missing bundled codebase-memory-mcp launcher" >&2; exit 1; }
-command -v git >/dev/null 2>&1 || { echo "FATAL: git is required" >&2; exit 1; }
+json_field() {
+  JSON_FILE=$1
+  JSON_KEY=$2
+  [ -f "$JSON_FILE" ] || return 0
+  sed -n 's/.*"'"$JSON_KEY"'"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$JSON_FILE" | sed -n '1p'
+}
+
+normalize_repository() {
+  VALUE=$1
+  VALUE=${VALUE%/}
+  VALUE=${VALUE%.git}
+  case "$VALUE" in
+    *://*) VALUE=${VALUE#*://}; case "$VALUE" in *@*) VALUE=${VALUE#*@} ;; esac ;;
+    *@*:*) VALUE=${VALUE#*@}; HOST=${VALUE%%:*}; PATH_PART=${VALUE#*:}; VALUE="$HOST/$PATH_PART" ;;
+  esac
+  printf '%s' "$VALUE"
+}
+
+score_changed_paths() {
+  SCORE_ROOT=$1
+  SCORE_LIST=$2
+  SCORE=0
+  while IFS= read -r SCORE_FILE; do
+    [ -n "$SCORE_FILE" ] || continue
+    [ -e "$SCORE_ROOT/$SCORE_FILE" ] && SCORE=$((SCORE + 1))
+  done < "$SCORE_LIST"
+  printf '%s' "$SCORE"
+}
+
+resolve_patch_source_root() {
+  CONFIGURED_ROOT=$1
+  PATCH_FILE=$2
+  RESOLVE_TMP=$(mktemp -d "${TMPDIR:-/tmp}/impact-root.XXXXXX")
+  RESOLVE_LIST="$RESOLVE_TMP/changed-files.txt"
+  LC_ALL=C awk -v source=patch -v base= -v head= -v diff_file=changes.diff -v list_file="$RESOLVE_LIST" -f "$DIFF_NORMALIZER" "$PATCH_FILE" >/dev/null
+
+  BEST_ROOT=$CONFIGURED_ROOT
+  BEST_SCORE=$(score_changed_paths "$CONFIGURED_ROOT" "$RESOLVE_LIST")
+  BEST_TIES=1
+  CHILD_COUNT=0
+  ONLY_CHILD=""
+  VISIBLE_FILE_COUNT=0
+  for ENTRY in "$CONFIGURED_ROOT"/*; do
+    [ -e "$ENTRY" ] || continue
+    if [ -d "$ENTRY" ]; then
+      CHILD_COUNT=$((CHILD_COUNT + 1))
+      ONLY_CHILD=$ENTRY
+      CHILD_SCORE=$(score_changed_paths "$ENTRY" "$RESOLVE_LIST")
+      if [ "$CHILD_SCORE" -gt "$BEST_SCORE" ]; then
+        BEST_ROOT=$ENTRY
+        BEST_SCORE=$CHILD_SCORE
+        BEST_TIES=1
+      elif [ "$CHILD_SCORE" -eq "$BEST_SCORE" ] && [ "$CHILD_SCORE" -gt 0 ]; then
+        BEST_TIES=$((BEST_TIES + 1))
+      fi
+    else
+      VISIBLE_FILE_COUNT=$((VISIBLE_FILE_COUNT + 1))
+    fi
+  done
+
+  rm -f "$RESOLVE_LIST"
+  rmdir "$RESOLVE_TMP"
+  if [ "$BEST_SCORE" -gt 0 ] && [ "$BEST_TIES" -gt 1 ]; then
+    echo "FATAL: patch paths match multiple source directories under $CONFIGURED_ROOT; set sourceDirectory explicitly" >&2
+    return 2
+  fi
+  if [ "$BEST_SCORE" -eq 0 ] && [ "$CHILD_COUNT" -eq 1 ] && [ "$VISIBLE_FILE_COUNT" -eq 0 ]; then BEST_ROOT=$ONLY_CHILD; fi
+  CDPATH= cd -- "$BEST_ROOT" && pwd
+}
+
+resolve_from_task() {
+  [ -n "$TASK_ROOT" ] || return 0
+  TASK_ROOT=$(CDPATH= cd -- "$TASK_ROOT" && pwd)
+  TASK_JSON="$TASK_ROOT/task.json"
+
+  if [ -z "$GIT_URL" ]; then
+    GIT_URL=$(json_field "$TASK_JSON" gitUrl)
+    [ -n "$GIT_URL" ] || GIT_URL=$(json_field "$TASK_JSON" git_url)
+  fi
+  if [ -z "$BRANCH" ]; then BRANCH=$(json_field "$TASK_JSON" branch); fi
+
+  if [ -z "$REPO" ] && [ -z "$GIT_URL" ]; then
+    CONFIG_REPO=$(json_field "$TASK_JSON" sourceDirectory)
+    [ -n "$CONFIG_REPO" ] || CONFIG_REPO=$(json_field "$TASK_JSON" source_directory)
+    REPO=${CONFIG_REPO:-repo}
+    case "$REPO" in /*) ;; *) REPO="$TASK_ROOT/$REPO" ;; esac
+  fi
+  [ -n "$OUT" ] || OUT="$TASK_ROOT/codegraph"
+  [ -n "$REPORT_DIR" ] || REPORT_DIR="$TASK_ROOT/report"
+  if [ -z "$DIFF_FILE" ]; then
+    CONFIG_DIFF=$(json_field "$TASK_JSON" diffFile)
+    [ -n "$CONFIG_DIFF" ] || CONFIG_DIFF=$(json_field "$TASK_JSON" diff_file)
+    DIFF_FILE=${CONFIG_DIFF:-diff/changes.diff}
+    case "$DIFF_FILE" in /*) ;; *) DIFF_FILE="$TASK_ROOT/$DIFF_FILE" ;; esac
+  fi
+  if [ -z "$MODE" ]; then
+    MODE=$(json_field "$TASK_JSON" changeMode)
+    [ -n "$MODE" ] || MODE=$(json_field "$TASK_JSON" change_mode)
+  fi
+  if [ -z "$BASE" ]; then
+    BASE=$(json_field "$TASK_JSON" baseRef)
+    [ -n "$BASE" ] || BASE=$(json_field "$TASK_JSON" base_ref)
+    [ -n "$BASE" ] || BASE=$(json_field "$TASK_JSON" baseCommit)
+  fi
+  if [ -z "$HEAD_REF" ]; then
+    HEAD_REF=$(json_field "$TASK_JSON" headRef)
+    [ -n "$HEAD_REF" ] || HEAD_REF=$(json_field "$TASK_JSON" head_ref)
+    [ -n "$HEAD_REF" ] || HEAD_REF=$(json_field "$TASK_JSON" headCommit)
+  fi
+  if [ -z "$PROJECT_ID" ]; then
+    PROJECT_ID=$(json_field "$TASK_JSON" projectId)
+    [ -n "$PROJECT_ID" ] || PROJECT_ID=$(json_field "$TASK_JSON" project_id)
+  fi
+  if [ -z "$REPOSITORY_ID" ]; then REPOSITORY_ID=$(json_field "$TASK_JSON" repository); fi
+}
+
+resolve_from_task
+[ -n "$OUT" ] || { echo "FATAL: --out is required when --task-root is not used" >&2; exit 2; }
+if [ -n "$GIT_URL" ]; then
+  [ -z "$REPO" ] || { echo "FATAL: --repo and --git-url cannot be used together" >&2; exit 2; }
+  case "${MODE:-auto}" in auto|git) MODE=git ;; *) echo "FATAL: --git-url only supports git mode" >&2; exit 2 ;; esac
+  command -v git >/dev/null 2>&1 || { echo "FATAL: --git-url requires git" >&2; exit 1; }
+  mkdir -p "$OUT"
+  OUT=$(CDPATH= cd -- "$OUT" && pwd)
+  REMOTE_CHECKOUT="$OUT/input-repository"
+  [ ! -e "$REMOTE_CHECKOUT" ] || { echo "FATAL: $REMOTE_CHECKOUT already exists; use an empty codegraph directory" >&2; exit 2; }
+  if [ -n "$BRANCH" ]; then git clone --quiet --branch "$BRANCH" -- "$GIT_URL" "$REMOTE_CHECKOUT"
+  else git clone --quiet -- "$GIT_URL" "$REMOTE_CHECKOUT"
+  fi
+  REPO=$REMOTE_CHECKOUT
+  REPOSITORY_ID=$GIT_URL
+fi
+[ -n "$REPO" ] || { echo "FATAL: --task-root, --repo, or --git-url is required" >&2; exit 2; }
+[ -d "$REPO" ] || { echo "FATAL: source directory does not exist: $REPO" >&2; exit 2; }
+[ -x "$CBM_LAUNCHER" ] || { echo "FATAL: missing bundled graph-engine launcher: $CBM_LAUNCHER" >&2; exit 1; }
+[ -f "$PROJECT_MAP" ] || { echo "FATAL: missing project routing map" >&2; exit 1; }
+[ -f "$DIFF_NORMALIZER" ] || { echo "FATAL: missing diff normalizer" >&2; exit 1; }
 
 case "$DEPTH" in *[!0-9]*|'') echo "FATAL: depth must be an integer" >&2; exit 2 ;; esac
 case "$NODE_BUDGET" in *[!0-9]*|'') echo "FATAL: node budget must be an integer" >&2; exit 2 ;; esac
@@ -42,63 +222,101 @@ case "$TRACE_LIMIT" in *[!0-9]*|'') echo "FATAL: trace limit must be an integer"
 [ "$NODE_BUDGET" -ge 1 ] && [ "$NODE_BUDGET" -le 400 ] || { echo "FATAL: node budget must be between 1 and 400" >&2; exit 2; }
 [ "$TRACE_LIMIT" -ge 1 ] && [ "$TRACE_LIMIT" -le 100 ] || { echo "FATAL: trace limit must be between 1 and 100" >&2; exit 2; }
 
-REPO_ROOT=$(CDPATH= cd -- "$(git -C "$REPO" rev-parse --show-toplevel)" && pwd)
+REPO_ROOT=$(CDPATH= cd -- "$REPO" && pwd)
+CONFIGURED_REPO_ROOT=$REPO_ROOT
+if [ -z "$MODE" ] || [ "$MODE" = "auto" ]; then
+  if [ -n "$DIFF_FILE" ] && [ -s "$DIFF_FILE" ]; then MODE=patch
+  elif [ -d "$REPO_ROOT/.git" ]; then MODE=git
+  else echo "FATAL: auto mode found neither diff/changes.diff nor repo/.git" >&2; exit 2
+  fi
+fi
+case "$MODE" in git|patch) ;; *) echo "FATAL: mode must be auto, git, or patch" >&2; exit 2 ;; esac
+
+if [ "$MODE" = "patch" ]; then
+  [ -n "$DIFF_FILE" ] && [ -s "$DIFF_FILE" ] || { echo "FATAL: patch mode requires a non-empty changes.diff" >&2; exit 2; }
+  REPO_ROOT=$(resolve_patch_source_root "$REPO_ROOT" "$DIFF_FILE")
+fi
+if [ "$MODE" = "git" ]; then
+  BASE=${BASE:-HEAD~1}
+  HEAD_REF=${HEAD_REF:-HEAD}
+  [ "$HEAD_REF" != "WORKTREE" ] || HEAD_REF=HEAD
+  command -v git >/dev/null 2>&1 || { echo "FATAL: git mode requires git" >&2; exit 1; }
+  REPO_ROOT=$(CDPATH= cd -- "$(git -C "$REPO_ROOT" rev-parse --show-toplevel)" && pwd)
+fi
+
 mkdir -p "$OUT"
 OUT=$(CDPATH= cd -- "$OUT" && pwd)
-case "$OUT/" in "$REPO_ROOT/"*) echo "FATAL: output must be outside the reviewed repository" >&2; exit 2 ;; esac
+case "$OUT/" in "$REPO_ROOT/"*) echo "FATAL: codegraph output must be outside repo/" >&2; exit 2 ;; esac
+case "$OUT/" in "$CONFIGURED_REPO_ROOT/"*) echo "FATAL: codegraph output must be outside repo/" >&2; exit 2 ;; esac
+[ -n "$REPORT_DIR" ] || REPORT_DIR="$OUT/report"
+mkdir -p "$REPORT_DIR"
+REPORT_DIR=$(CDPATH= cd -- "$REPORT_DIR" && pwd)
 
 SHADOW="$OUT/analysis-source"
-[ ! -e "$SHADOW" ] || { echo "FATAL: output already contains analysis-source; use a new output directory" >&2; exit 2; }
-BASE_SHA=$(git -C "$REPO_ROOT" rev-parse "$BASE")
-HEAD_SHA=$(git -C "$REPO_ROOT" rev-parse "$HEAD_REF")
-CURRENT_SHA=$(git -C "$REPO_ROOT" rev-parse HEAD)
-HEAD_SHORT=$(printf '%s' "$HEAD_SHA" | cut -c1-12)
-REMOTE=$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null || printf '%s' "$REPO_ROOT")
-
+[ ! -e "$SHADOW" ] || { echo "FATAL: $SHADOW already exists; use an empty codegraph directory" >&2; exit 2; }
+SOURCE_DIFF="$OUT/changes.diff"
+CHANGED_FILES="$OUT/changed-files.txt"
+CHANGES_JSON="$OUT/changes.json"
 DIRTY=0
-git -C "$REPO_ROOT" diff --quiet || DIRTY=1
-git -C "$REPO_ROOT" diff --cached --quiet || DIRTY=1
-[ -z "$(git -C "$REPO_ROOT" ls-files --others --exclude-standard)" ] || DIRTY=1
-if [ "$DIRTY" -eq 1 ] && [ "$HEAD_SHA" != "$CURRENT_SHA" ]; then
-  echo "FATAL: dirty worktree can only be reviewed with --head HEAD/WORKTREE" >&2
-  exit 2
-fi
+BASE_SHA=""
+HEAD_SHA=""
+REMOTE=${REPOSITORY_ID:-}
 
-git clone --quiet --no-hardlinks --no-checkout "$REPO_ROOT" "$SHADOW"
-git -C "$SHADOW" checkout --quiet --detach "$HEAD_SHA"
-
-if [ "$DIRTY" -eq 1 ]; then
-  PATCH_FILE="$OUT/worktree.patch"
-  git -C "$REPO_ROOT" diff HEAD --binary --output="$PATCH_FILE"
-  if [ -s "$PATCH_FILE" ]; then
-    git -C "$SHADOW" apply --whitespace=nowarn "$PATCH_FILE"
+if [ "$MODE" = "git" ]; then
+  BASE_SHA=$(git -C "$REPO_ROOT" rev-parse "$BASE")
+  HEAD_SHA=$(git -C "$REPO_ROOT" rev-parse "$HEAD_REF")
+  CURRENT_SHA=$(git -C "$REPO_ROOT" rev-parse HEAD)
+  [ -n "$REPOSITORY_ID" ] || REMOTE=$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null || printf '')
+  git -C "$REPO_ROOT" diff --quiet || DIRTY=1
+  git -C "$REPO_ROOT" diff --cached --quiet || DIRTY=1
+  [ -z "$(git -C "$REPO_ROOT" ls-files --others --exclude-standard)" ] || DIRTY=1
+  if [ "$DIRTY" -eq 1 ] && [ "$HEAD_SHA" != "$CURRENT_SHA" ]; then
+    echo "FATAL: a dirty worktree can only be reviewed at HEAD/WORKTREE" >&2
+    exit 2
   fi
-  git -C "$REPO_ROOT" ls-files --others --exclude-standard > "$OUT/untracked-files.txt"
-  while IFS= read -r FILE; do
-    [ -n "$FILE" ] || continue
-    mkdir -p "$SHADOW/$(dirname "$FILE")"
-    cp "$REPO_ROOT/$FILE" "$SHADOW/$FILE"
-  done < "$OUT/untracked-files.txt"
+
+  git clone --quiet --no-hardlinks --no-checkout "$REPO_ROOT" "$SHADOW"
+  git -C "$SHADOW" checkout --quiet --detach "$HEAD_SHA"
+  if [ "$DIRTY" -eq 1 ]; then
+    WORKTREE_PATCH="$OUT/.worktree.patch"
+    git -C "$REPO_ROOT" diff HEAD --binary --output="$WORKTREE_PATCH"
+    [ ! -s "$WORKTREE_PATCH" ] || git -C "$SHADOW" apply --whitespace=nowarn "$WORKTREE_PATCH"
+    git -C "$REPO_ROOT" ls-files --others --exclude-standard > "$OUT/.untracked-files"
+    while IFS= read -r FILE; do
+      [ -n "$FILE" ] || continue
+      mkdir -p "$SHADOW/$(dirname "$FILE")"
+      cp "$REPO_ROOT/$FILE" "$SHADOW/$FILE"
+      git -C "$SHADOW" add -N -- "$FILE"
+    done < "$OUT/.untracked-files"
+  fi
+  git -C "$SHADOW" diff --binary "$BASE_SHA" -- > "$SOURCE_DIFF"
+  LC_ALL=C awk -v source=git -v base="$BASE_SHA" -v head="$HEAD_SHA" -v diff_file="changes.diff" -v list_file="$CHANGED_FILES" -f "$DIFF_NORMALIZER" "$SOURCE_DIFF" > "$CHANGES_JSON"
+else
+  mkdir "$SHADOW"
+  cp -R "$REPO_ROOT/." "$SHADOW/"
+  rm -rf "$SHADOW/.codebase-memory"
+  cp "$DIFF_FILE" "$SOURCE_DIFF"
+  PATCH_SUM=$(cksum "$SOURCE_DIFF" | awk '{print $1}')
+  BASE_SHA=${BASE:-unknown-base}
+  HEAD_SHA=${HEAD_REF:-snapshot-$PATCH_SUM}
+  LC_ALL=C awk -v source=patch -v base="$BASE_SHA" -v head="$HEAD_SHA" -v diff_file="changes.diff" -v list_file="$CHANGED_FILES" -f "$DIFF_NORMALIZER" "$SOURCE_DIFF" > "$CHANGES_JSON"
+fi
+REMOTE=$(normalize_repository "$REMOTE")
+
+sort -u "$CHANGED_FILES" -o "$CHANGED_FILES"
+[ -s "$CHANGED_FILES" ] || { echo "FATAL: no changed files could be parsed from $SOURCE_DIFF" >&2; exit 2; }
+if [ -d "$SHADOW/.git/info" ]; then
+  printf '.codebase-memory/\n' >> "$SHADOW/.git/info/exclude"
 fi
 
-json_escape() {
-  printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
-}
+json_escape() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
 
 cbm_to_file() {
-  CBM_OUTPUT=$1
-  shift
-  CBM_ATTEMPT=1
+  CBM_OUTPUT=$1; shift; CBM_ATTEMPT=1
   while [ "$CBM_ATTEMPT" -le 3 ]; do
-    if CBM_LOG_LEVEL=error "$CBM_LAUNCHER" "$@" > "$CBM_OUTPUT.tmp"; then
-      mv "$CBM_OUTPUT.tmp" "$CBM_OUTPUT"
-      return 0
-    fi
+    if CBM_LOG_LEVEL=error "$CBM_LAUNCHER" "$@" > "$CBM_OUTPUT.tmp"; then mv "$CBM_OUTPUT.tmp" "$CBM_OUTPUT"; return 0; fi
     rm -f "$CBM_OUTPUT.tmp"
-    if [ "$CBM_ATTEMPT" -lt 3 ]; then
-      echo "WARN: codebase-memory-mcp query not ready; retrying ($CBM_ATTEMPT/3)" >&2
-      sleep 1
-    fi
+    if [ "$CBM_ATTEMPT" -lt 3 ]; then echo "WARN: graph query not ready; retrying ($CBM_ATTEMPT/3)" >&2; sleep 1; fi
     CBM_ATTEMPT=$((CBM_ATTEMPT + 1))
   done
   echo "FATAL: codebase-memory-mcp failed after 3 attempts: $*" >&2
@@ -107,61 +325,60 @@ cbm_to_file() {
 
 MATCHES="$OUT/.matches.jsonl"
 IGNORE_FILES="$OUT/.cbmignore-files"
-: > "$MATCHES"
-: > "$IGNORE_FILES"
-BEST_PROJECT_ID=""
-BEST_PROJECT_PRIORITY=-1
+: > "$MATCHES"; : > "$IGNORE_FILES"
+PROJECT_DIRECTORY=$(basename "$REPO_ROOT")
 TAB=$(printf '\t')
-sed '1d' "$PROJECT_MAP" | while IFS="$TAB" read -r KIND ID PRIORITY REMOTE_GLOB PATH_GLOB MARKERS KNOWLEDGE IGNORE_FILE; do
+sed '1d' "$PROJECT_MAP" | while IFS="$TAB" read -r KIND ID PRIORITY GIT_REMOTE_GLOB PATCH_PROJECT_GLOB PATCH_DIFF_GLOB MARKERS KNOWLEDGE IGNORE_FILE; do
   IDENTITY_OK=0
-  if [ "$REMOTE_GLOB" = "*" ] && [ "$PATH_GLOB" = "*" ]; then
-    IDENTITY_OK=1
+  if [ "$MODE" = "git" ]; then
+    if [ "$GIT_REMOTE_GLOB" != "-" ]; then case "$REMOTE" in $GIT_REMOTE_GLOB) IDENTITY_OK=1 ;; esac; fi
   else
-    if [ "$REMOTE_GLOB" != "*" ]; then
-      case "$REMOTE" in $REMOTE_GLOB) IDENTITY_OK=1 ;; esac
-    fi
-    if [ "$PATH_GLOB" != "*" ]; then
-      case "$REPO_ROOT" in $PATH_GLOB) IDENTITY_OK=1 ;; esac
+    if [ "$PATCH_PROJECT_GLOB" != "-" ]; then case "$PROJECT_DIRECTORY" in $PATCH_PROJECT_GLOB) IDENTITY_OK=1 ;; esac; fi
+    if [ "$PATCH_DIFF_GLOB" != "-" ]; then
+      while IFS= read -r CHANGED_FILE; do
+        case "$CHANGED_FILE" in $PATCH_DIFF_GLOB) IDENTITY_OK=1; break ;; esac
+      done < "$CHANGED_FILES"
     fi
   fi
+  if [ -n "$PROJECT_ID" ] && [ "$KIND" = "project" ] && [ "$ID" != "$PROJECT_ID" ]; then IDENTITY_OK=0; fi
+  if [ -n "$PROJECT_ID" ] && [ "$KIND" = "project" ] && [ "$ID" = "$PROJECT_ID" ]; then IDENTITY_OK=1; fi
   MARKERS_OK=1
   if [ "$MARKERS" != "*" ]; then
-    OLD_IFS=$IFS
-    IFS=','
-    for MARKER in $MARKERS; do
-      [ -e "$REPO_ROOT/$MARKER" ] || MARKERS_OK=0
-    done
+    OLD_IFS=$IFS; IFS=','
+    for MARKER in $MARKERS; do [ -e "$REPO_ROOT/$MARKER" ] || MARKERS_OK=0; done
     IFS=$OLD_IFS
   fi
   if [ "$IDENTITY_OK" -eq 1 ] && [ "$MARKERS_OK" -eq 1 ]; then
-    printf '{"kind":"%s","id":"%s","priority":%s,"knowledge":"%s"}\n' \
-      "$(json_escape "$KIND")" "$(json_escape "$ID")" "$PRIORITY" "$(json_escape "$KNOWLEDGE")" >> "$MATCHES"
-    if [ -n "$IGNORE_FILE" ] && [ "$IGNORE_FILE" != "-" ]; then
-      printf '%s\n' "$IGNORE_FILE" >> "$IGNORE_FILES"
-    fi
-    if [ "$KIND" = "project" ] && [ "$PRIORITY" -gt "$BEST_PROJECT_PRIORITY" ]; then
-      printf '%s\t%s\n' "$PRIORITY" "$ID" > "$OUT/.best-project"
-    fi
+    printf '{"kind":"%s","id":"%s","priority":%s,"knowledge":"%s"}\n' "$(json_escape "$KIND")" "$(json_escape "$ID")" "$PRIORITY" "$(json_escape "$KNOWLEDGE")" >> "$MATCHES"
+    if [ -n "$IGNORE_FILE" ] && [ "$IGNORE_FILE" != "-" ]; then printf '%s\n' "$IGNORE_FILE" >> "$IGNORE_FILES"; fi
+    if [ "$KIND" = "project" ]; then printf '%s\t%s\n' "$PRIORITY" "$ID" >> "$OUT/.project-candidates"; fi
   fi
 done
 
-if [ -s "$OUT/.best-project" ]; then
-  BEST_PROJECT_PRIORITY=$(cut -f1 "$OUT/.best-project")
+BEST_PROJECT_ID=""
+if [ -s "$OUT/.project-candidates" ]; then
+  sort -rn "$OUT/.project-candidates" | sed -n '1p' > "$OUT/.best-project"
   BEST_PROJECT_ID=$(cut -f2 "$OUT/.best-project")
+fi
+if [ -n "$PROJECT_ID" ] && [ "$BEST_PROJECT_ID" != "$PROJECT_ID" ]; then
+  echo "FATAL: project pack '$PROJECT_ID' did not match its required marker files" >&2
+  exit 2
 fi
 
 {
-  printf '{\n  "schemaVersion": 2,\n'
+  printf '{\n  "schemaVersion": 4,\n'
+  printf '  "changeMode": "%s",\n' "$(json_escape "$MODE")"
+  printf '  "configuredRoot": "%s",\n' "$(json_escape "$CONFIGURED_REPO_ROOT")"
   printf '  "root": "%s",\n' "$(json_escape "$REPO_ROOT")"
+  printf '  "projectDirectory": "%s",\n' "$(json_escape "$PROJECT_DIRECTORY")"
   printf '  "analysisRoot": "%s",\n' "$(json_escape "$SHADOW")"
-  printf '  "remote": "%s",\n' "$(json_escape "$REMOTE")"
-  printf '  "commit": "%s",\n  "matches": [' "$HEAD_SHA"
+  printf '  "repository": "%s",\n' "$(json_escape "$REMOTE")"
+  printf '  "head": "%s",\n  "matches": [' "$(json_escape "$HEAD_SHA")"
   FIRST=1
   while IFS= read -r ENTRY; do
     [ -n "$ENTRY" ] || continue
     [ "$FIRST" -eq 1 ] || printf ','
-    printf '\n    %s' "$ENTRY"
-    FIRST=0
+    printf '\n    %s' "$ENTRY"; FIRST=0
   done < "$MATCHES"
   [ "$FIRST" -eq 1 ] || printf '\n  '
   printf ']\n}\n'
@@ -170,50 +387,46 @@ fi
 if [ -s "$IGNORE_FILES" ]; then
   : > "$SHADOW/.cbmignore"
   while IFS= read -r IGNORE_FILE; do
-    [ -f "$PLUGIN_ROOT/$IGNORE_FILE" ] || { echo "FATAL: missing configured cbmignore $IGNORE_FILE" >&2; exit 1; }
-    sed -n 'p' "$PLUGIN_ROOT/$IGNORE_FILE" >> "$SHADOW/.cbmignore"
+    [ -f "$PACKAGE_ROOT/$IGNORE_FILE" ] || { echo "FATAL: missing configured cbmignore $IGNORE_FILE" >&2; exit 1; }
+    sed -n 'p' "$PACKAGE_ROOT/$IGNORE_FILE" >> "$SHADOW/.cbmignore"
   done < "$IGNORE_FILES"
-  printf '.cbmignore\n.codebase-memory/\n' >> "$SHADOW/.git/info/exclude"
+  if [ -d "$SHADOW/.git/info" ]; then printf '.cbmignore\n' >> "$SHADOW/.git/info/exclude"; fi
 fi
 
 ROOT_SUM=$(printf '%s' "$REPO_ROOT" | cksum | awk '{print $1}')
-if [ -n "$BEST_PROJECT_ID" ]; then
-  CBM_PROJECT="$BEST_PROJECT_ID-$HEAD_SHORT"
-else
-  REPO_NAME=$(basename "$REPO_ROOT" | tr -cs 'A-Za-z0-9._-' '-')
-  CBM_PROJECT="$REPO_NAME-$HEAD_SHORT-$ROOT_SUM"
+HEAD_SHORT=$(printf '%s' "$HEAD_SHA" | tr -cs 'A-Za-z0-9' '-' | cut -c1-12)
+[ -n "$HEAD_SHORT" ] || HEAD_SHORT=snapshot
+if [ -n "$BEST_PROJECT_ID" ]; then CBM_PROJECT="$BEST_PROJECT_ID-$HEAD_SHORT-$ROOT_SUM"
+else REPO_BASENAME=$(basename "$REPO_ROOT"); REPO_NAME=$(printf '%s' "$REPO_BASENAME" | tr -cs 'A-Za-z0-9._-' '-'); CBM_PROJECT="$REPO_NAME-$HEAD_SHORT-$ROOT_SUM"
 fi
 
 PACKAGED_GRAPH=""
-if [ "$REBUILD_GRAPH" -eq 0 ] && [ "$DIRTY" -eq 0 ] && [ -n "$BEST_PROJECT_ID" ]; then
-  CANDIDATE="$PLUGIN_ROOT/project-packs/projects/$BEST_PROJECT_ID/codebase-memory/$HEAD_SHA/graph.db.zst"
-  if [ -s "$CANDIDATE" ]; then
-    mkdir -p "$SHADOW/.codebase-memory"
-    cp "$CANDIDATE" "$SHADOW/.codebase-memory/graph.db.zst"
-    PACKAGED_GRAPH="$CANDIDATE"
-  fi
+if [ "$MODE" = "git" ] && [ "$REBUILD_GRAPH" -eq 0 ] && [ "$DIRTY" -eq 0 ] && [ -n "$BEST_PROJECT_ID" ]; then
+  CANDIDATE="$PACKAGE_ROOT/project-packs/projects/$BEST_PROJECT_ID/codebase-memory/$HEAD_SHA/graph.db.zst"
+  if [ -s "$CANDIDATE" ]; then mkdir -p "$SHADOW/.codebase-memory"; cp "$CANDIDATE" "$SHADOW/.codebase-memory/graph.db.zst"; PACKAGED_GRAPH="$CANDIDATE"; fi
 fi
 
-mkdir -p "$OUT/graph"
-cbm_to_file "$OUT/graph/index-result.json" cli index_repository \
-  --repo-path "$SHADOW" --mode full --name "$CBM_PROJECT" --persistence true
-cbm_to_file "$OUT/graph/schema.json" cli get_graph_schema --project "$CBM_PROJECT"
-cbm_to_file "$OUT/graph/index-status.json" cli index_status --project "$CBM_PROJECT"
-cbm_to_file "$OUT/impact-review.json" cli detect_changes --project "$CBM_PROJECT" \
-  --since "$BASE_SHA" --direction inbound --depth "$DEPTH" --limit "$NODE_BUDGET" --format json
+cbm_to_file "$OUT/index-result.json" cli index_repository --repo-path "$SHADOW" --mode full --name "$CBM_PROJECT" --persistence true
+cbm_to_file "$OUT/schema.json" cli get_graph_schema --project "$CBM_PROJECT"
+cbm_to_file "$OUT/index-status.json" cli index_status --project "$CBM_PROJECT"
+
+if [ "$MODE" = "git" ]; then
+  cbm_to_file "$OUT/official-impact-review.json" cli detect_changes --project "$CBM_PROJECT" --since "$BASE_SHA" --direction inbound --depth "$DEPTH" --limit "$NODE_BUDGET" --format json
+  printf '{"schemaVersion":1,"changeSource":"git","strategy":"official-detect_changes-plus-ai-verification","officialResult":"official-impact-review.json"}\n' > "$OUT/impact-review.json"
+else
+  printf '{"schemaVersion":1,"changeSource":"patch","strategy":"diff-hunks-plus-search_graph-plus-bounded-trace_path","requiresAiTrace":true,"reason":"detect_changes requires Git history; current snapshot was indexed successfully"}\n' > "$OUT/impact-review.json"
+fi
 
 [ -s "$SHADOW/.codebase-memory/graph.db.zst" ] || { echo "FATAL: official graph artifact was not produced" >&2; exit 1; }
-cp "$SHADOW/.codebase-memory/graph.db.zst" "$OUT/graph/graph.db.zst"
-[ ! -f "$SHADOW/.codebase-memory/artifact.json" ] || cp "$SHADOW/.codebase-memory/artifact.json" "$OUT/graph/artifact.json"
+cp "$SHADOW/.codebase-memory/graph.db.zst" "$OUT/graph.db.zst"
+[ ! -f "$SHADOW/.codebase-memory/artifact.json" ] || cp "$SHADOW/.codebase-memory/artifact.json" "$OUT/artifact.json"
+printf '%s\n' "$CBM_PROJECT" > "$OUT/engine-project.txt"
 
-{
-  git -C "$SHADOW" diff --name-only "$BASE_SHA"...HEAD
-  git -C "$SHADOW" diff --name-only HEAD
-  git -C "$SHADOW" ls-files --others --exclude-standard
-} | sort -u | sed '/^$/d' > "$OUT/changed-files.txt"
-
+mkdir -p "$OUT/symbol-candidates"
+PACKET="$OUT/verification-packet.md"
 {
   printf '# AI verification packet\n\n'
+  printf -- '- Change source: `%s`\n' "$MODE"
   printf -- '- Graph engine: codebase-memory-mcp 0.10.2\n'
   printf -- '- Project: `%s`\n' "$CBM_PROJECT"
   printf -- '- Effective depth: %s (hard maximum 4)\n' "$DEPTH"
@@ -221,47 +434,62 @@ cp "$SHADOW/.codebase-memory/graph.db.zst" "$OUT/graph/graph.db.zst"
   printf -- '- Global unique-node budget: %s\n' "$NODE_BUDGET"
   printf -- '- Packaged graph reused: %s\n\n' "${PACKAGED_GRAPH:-no}"
   printf '## Changed-file symbol candidates\n'
-  while IFS= read -r FILE; do
-    [ -n "$FILE" ] || continue
-    printf '\n### `%s`\n\n```text\n' "$FILE"
-    CBM_LOG_LEVEL=error "$CBM_LAUNCHER" cli search_graph --project "$CBM_PROJECT" \
-      --file-pattern "$FILE" --limit "$TRACE_LIMIT" --format tree || true
-    printf '```\n\nCoverage:\n\n```text\n'
-    CBM_LOG_LEVEL=error "$CBM_LAUNCHER" cli check_index_coverage --project "$CBM_PROJECT" \
-      --paths "$FILE" || true
-    printf '```\n'
-  done < "$OUT/changed-files.txt"
-  printf '\n## Required AI action\n\n'
-  printf 'For each prioritized changed symbol, call `trace_path` first at depth 1 with `include_evidence=true`; expand one level at a time only while within the recorded budgets. Verify every retained edge against source and add missing dynamic or C/C++-Lua binding edges.\n'
-} > "$OUT/verification-packet.md"
+} > "$PACKET"
 
-cat > "$OUT/analysis-metadata.json" <<EOF
+FILE_NUMBER=0
+while IFS= read -r FILE; do
+  [ -n "$FILE" ] || continue
+  FILE_NUMBER=$((FILE_NUMBER + 1)); NUMBER=$(printf '%03d' "$FILE_NUMBER")
+  SAFE_NAME=$(printf '%s' "$FILE" | tr '/\\ :' '----' | tr -cd 'A-Za-z0-9._-'); [ -n "$SAFE_NAME" ] || SAFE_NAME=file
+  CANDIDATE_FILE="$OUT/symbol-candidates/$NUMBER-$SAFE_NAME.json"
+  COVERAGE_FILE="$OUT/symbol-candidates/$NUMBER-$SAFE_NAME-coverage.json"
+  cbm_to_file "$CANDIDATE_FILE" cli search_graph --project "$CBM_PROJECT" --file-pattern "$FILE" --limit "$TRACE_LIMIT" --format json || printf '{"results":[],"error":"search failed"}\n' > "$CANDIDATE_FILE"
+  cbm_to_file "$COVERAGE_FILE" cli check_index_coverage --project "$CBM_PROJECT" --paths "$FILE" || printf '{"error":"coverage query failed"}\n' > "$COVERAGE_FILE"
+  {
+    printf '\n### `%s`\n\n' "$FILE"
+    printf -- '- Symbol candidates: `%s`\n' "symbol-candidates/$(basename "$CANDIDATE_FILE")"
+    printf -- '- Coverage: `%s`\n' "symbol-candidates/$(basename "$COVERAGE_FILE")"
+  } >> "$PACKET"
+done < "$CHANGED_FILES"
+
+cat >> "$PACKET" <<'PACKET_END'
+
+## Required AI action
+
+1. Map each diff hunk in `changes.json` to the smallest current symbol that contains its new-line range. For deleted code, inspect the old side of `changes.diff` and mark the symbol deleted when it no longer exists in the snapshot.
+2. For each prioritized changed symbol, call `trace_path` at depth 1 with `include_evidence=true`; expand one level at a time only while within the recorded budgets.
+3. Read the cited source bodies and verify every retained edge. Add missing callback, configuration, function-pointer, macro, metatable, dynamic module, and C/C++-Lua binding edges.
+4. Load the matched knowledge files from `project-detection.json`; use them only to interpret verified source facts.
+5. Replace the draft under `report/review-report.md` with the human-facing result.
+PACKET_END
+
 {
-  "schemaVersion": 2,
-  "engine": {"name": "codebase-memory-mcp", "version": "0.10.2", "license": "MIT"},
-  "sourceRoot": "$(json_escape "$REPO_ROOT")",
-  "analysisRoot": "$(json_escape "$SHADOW")",
-  "project": "$(json_escape "$CBM_PROJECT")",
-  "base": "$BASE_SHA",
-  "head": "$HEAD_SHA",
-  "requestedDepth": $DEPTH,
-  "effectiveDepth": $DEPTH,
-  "hardDepthLimit": 4,
-  "perTraceRowBudget": $TRACE_LIMIT,
-  "globalUniqueNodeBudget": $NODE_BUDGET,
-  "graphArtifact": "graph/graph.db.zst",
-  "targetRepositoryModified": false
-}
-EOF
+  printf '{\n  "schemaVersion": 4,\n'
+  printf '  "engine": {"name":"codebase-memory-mcp","version":"0.10.2","license":"MIT"},\n'
+  printf '  "changeMode": "%s",\n' "$MODE"
+  printf '  "configuredSourceRoot": "%s",\n' "$(json_escape "$CONFIGURED_REPO_ROOT")"
+  printf '  "sourceRoot": "%s",\n' "$(json_escape "$REPO_ROOT")"
+  printf '  "projectDirectory": "%s",\n' "$(json_escape "$PROJECT_DIRECTORY")"
+  printf '  "analysisRoot": "%s",\n' "$(json_escape "$SHADOW")"
+  printf '  "project": "%s",\n' "$(json_escape "$CBM_PROJECT")"
+  printf '  "base": "%s",\n  "head": "%s",\n' "$(json_escape "$BASE_SHA")" "$(json_escape "$HEAD_SHA")"
+  printf '  "requestedDepth": %s,\n  "effectiveDepth": %s,\n  "hardDepthLimit": 4,\n' "$DEPTH" "$DEPTH"
+  printf '  "perTraceRowBudget": %s,\n  "globalUniqueNodeBudget": %s,\n' "$TRACE_LIMIT" "$NODE_BUDGET"
+  printf '  "graphArtifact": "graph.db.zst",\n  "targetRepositoryModified": false\n}\n'
+} > "$OUT/analysis-metadata.json"
 
 {
   printf '# Deterministic pre-review summary\n\n'
+  printf -- '- Change source: %s\n' "$MODE"
   printf -- '- Engine: codebase-memory-mcp 0.10.2 (MIT)\n'
-  printf -- '- Source commit: `%s`\n' "$HEAD_SHA"
-  printf -- '- Changed files: %s\n' "$(wc -l < "$OUT/changed-files.txt" | tr -d ' ')"
+  printf -- '- Base: `%s`\n' "$BASE_SHA"
+  printf -- '- Head/snapshot: `%s`\n' "$HEAD_SHA"
+  printf -- '- Changed files: %s\n' "$(wc -l < "$CHANGED_FILES" | tr -d ' ')"
   printf -- '- Traversal: depth %s, per trace %s rows, global %s unique nodes\n' "$DEPTH" "$TRACE_LIMIT" "$NODE_BUDGET"
-  printf -- '- AI source verification: required\n'
+  printf -- '- AI source verification and final report: required\n'
 } > "$OUT/summary.md"
 
-rm -f "$MATCHES" "$IGNORE_FILES" "$OUT/.best-project"
-echo "OK: codebase-memory-mcp review artifacts written to $OUT"
+if [ ! -f "$REPORT_DIR/review-report.md" ]; then cp "$REPORT_TEMPLATE" "$REPORT_DIR/review-report.md"; fi
+rm -f "$MATCHES" "$IGNORE_FILES" "$OUT/.best-project" "$OUT/.project-candidates" "$OUT/.worktree.patch" "$OUT/.untracked-files"
+echo "OK: $MODE review evidence written to $OUT"
+echo "NEXT: AI must verify call paths and complete $REPORT_DIR/review-report.md"

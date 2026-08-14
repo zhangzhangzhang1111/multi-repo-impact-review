@@ -12,6 +12,6 @@
       "upstreamNotices": "vendor/codebase-memory-mcp/THIRD_PARTY_NOTICES.md"
     }
   ],
-  "requiredSystemTools": ["git", "POSIX shell on macOS/Linux or PowerShell 5+ on Windows"],
+  "requiredSystemTools": ["POSIX shell plus awk on macOS/Linux or PowerShell 5+ on Windows", "git only for Git mode"],
   "networkRequired": false
 }

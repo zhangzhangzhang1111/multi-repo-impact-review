@@ -3,4 +3,7 @@
 analysis-source/
 runtime/*/codebase-memory-mcp
 runtime/*/codebase-memory-mcp.exe
+skills/multi-repo-impact-review/runtime/*/codebase-memory-mcp
+skills/multi-repo-impact-review/runtime/*/codebase-memory-mcp.exe
+dist/
 *.tmp

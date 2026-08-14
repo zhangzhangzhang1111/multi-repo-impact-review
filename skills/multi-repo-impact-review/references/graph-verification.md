@@ -3,7 +3,7 @@
 ## Required procedure
 
 1. Read `analysis-metadata.json`; reject requested depth above 4 and retain its global/per-trace budgets.
-2. Start from changed symbols and the official `detect_changes` result. Prioritize externally reachable, state-changing, security-sensitive, persistence, protocol, and cross-language symbols.
+2. Start from changed symbols and, only in Git mode, the official `detect_changes` result. In patch mode start from normalized diff hunks and symbol candidates. Prioritize externally reachable, state-changing, security-sensitive, persistence, protocol, and cross-language symbols.
 3. Call `trace_path` at depth 1 with `limit` no greater than the per-trace budget, `include_tests=false`, and `include_evidence=true`.
 4. Expand one level at a time only when the current frontier has not reached an entry point, business boundary, external boundary, repository boundary, or already-visited cycle. Never exceed depth 4.
 5. Stop adding paths when the global unique-node budget is exhausted. Do not follow `next` pagination merely to be exhaustive; paginate only for an unresolved high-risk path and deduct every returned row from the same budget.
