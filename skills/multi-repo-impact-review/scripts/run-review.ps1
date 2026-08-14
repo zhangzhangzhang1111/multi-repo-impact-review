@@ -9,6 +9,8 @@ param(
   [string]$Head,
   [string]$ProjectId,
   [string]$Repository,
+  [string]$GitUrl,
+  [string]$Branch,
   [ValidateRange(1, 4)][int]$Depth = 2,
   [ValidateRange(1, 400)][int]$NodeBudget = 120,
   [ValidateRange(1, 100)][int]$TraceLimit = 30,
@@ -202,7 +204,9 @@ if ($TaskRoot) {
   $TaskRoot = [IO.Path]::GetFullPath($TaskRoot)
   $TaskJson = Join-Path $TaskRoot "task.json"
   if (Test-Path $TaskJson -PathType Leaf) { $TaskConfig = Get-Content -Raw $TaskJson | ConvertFrom-Json }
-  if (-not $Repo) {
+  if (-not $GitUrl) { $GitUrl = Get-JsonProperty $TaskConfig @("gitUrl", "git_url") }
+  if (-not $Branch) { $Branch = Get-JsonProperty $TaskConfig @("branch") }
+  if (-not $Repo -and -not $GitUrl) {
     $Repo = Get-JsonProperty $TaskConfig @("sourceDirectory", "source_directory")
     if (-not $Repo) { $Repo = "repo" }
     if (-not [IO.Path]::IsPathRooted($Repo)) { $Repo = Join-Path $TaskRoot $Repo }
@@ -221,8 +225,24 @@ if ($TaskRoot) {
   if (-not $Repository) { $Repository = Get-JsonProperty $TaskConfig @("repository") }
 }
 
-if (-not $Repo) { throw "-TaskRoot or -Repo is required" }
 if (-not $Out) { throw "-Out is required when -TaskRoot is not used" }
+if ($GitUrl) {
+  if ($Repo) { throw "-Repo and -GitUrl cannot be used together" }
+  if ($Mode -notin @("auto", "git")) { throw "-GitUrl only supports git mode" }
+  if (-not (Get-Command git -ErrorAction SilentlyContinue)) { throw "-GitUrl requires git" }
+  $Mode = "git"
+  $Out = [IO.Path]::GetFullPath($Out)
+  New-Item -ItemType Directory -Force -Path $Out | Out-Null
+  $RemoteCheckout = Join-Path $Out "input-repository"
+  if (Test-Path $RemoteCheckout) { throw "$RemoteCheckout already exists; use an empty codegraph directory" }
+  $CloneArguments = @("clone", "--quiet")
+  if ($Branch) { $CloneArguments += @("--branch", $Branch) }
+  $CloneArguments += @("--", $GitUrl, $RemoteCheckout)
+  Invoke-Git $CloneArguments | Out-Null
+  $Repo = $RemoteCheckout
+  $Repository = $GitUrl
+}
+if (-not $Repo) { throw "-TaskRoot, -Repo, or -GitUrl is required" }
 if (-not (Test-Path $Repo -PathType Container)) { throw "Source directory does not exist: $Repo" }
 if (-not (Test-Path $CbmLauncher -PathType Leaf)) { throw "Missing bundled graph-engine launcher: $CbmLauncher" }
 if (-not (Test-Path $ProjectMap -PathType Leaf)) { throw "Missing project routing map" }

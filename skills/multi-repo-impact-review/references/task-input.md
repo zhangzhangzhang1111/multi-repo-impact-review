@@ -5,7 +5,7 @@
 ```text
 task_id/
 ├── task.json
-├── repo/
+├── repo/                    # optional when gitUrl is supplied
 ├── diff/
 │   └── changes.diff
 ├── codegraph/
@@ -22,6 +22,8 @@ All fields are optional because CLI flags take precedence:
 {
   "taskId": "TASK-123",
   "changeMode": "auto",
+  "gitUrl": "ssh://git.example/team/project.git",
+  "branch": "feature-x",
   "sourceDirectory": "repo",
   "diffFile": "diff/changes.diff",
   "repository": "ssh://git.example/team/scriptswtlua.git",
@@ -32,6 +34,8 @@ All fields are optional because CLI flags take precedence:
 ```
 
 - `changeMode`: `auto`, `git`, or `patch`.
+- `gitUrl`: clone this repository into `codegraph/input-repository` and select Git mode. Do not include credentials in the URL.
+- `branch`: branch checked out for `gitUrl`; omit it to use the remote default branch.
 - `repository`: optionally override the Git remote identity. Patch routing does not require it: TransMid uses changed paths and project-specific packs use the extracted project directory name.
 - `projectId`: explicitly select a configured project pack when repository identity is unavailable. Marker files must still match.
 - `baseRef` and `headRef`: Git refs in Git mode; optional provenance strings in patch mode.
@@ -43,6 +47,8 @@ All fields are optional because CLI flags take precedence:
 3. Standard directory defaults.
 
 In `auto` mode, a non-empty configured diff selects patch mode even if `.git` exists. Without a diff, `.git` selects Git mode. Otherwise stop because there is no reliable change set.
+
+When `gitUrl` is supplied, `repo/` is not required. The runner clones the requested branch with full history so `baseRef` can reference another fetched branch such as `origin/main`. This is the only input form that requires network access.
 
 In patch mode, `repo/` may be the source root or a container with one extracted project directory. The runner selects the unique immediate child containing the changed paths, so `repo/zy_all/Transmid/...` aligns with diff paths such as `Transmid/...`. Set `sourceDirectory` explicitly when more than one child matches.
 

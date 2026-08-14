@@ -1,4 +1,4 @@
 interface:
   display_name: "Multi-Repo Impact Review"
-  short_description: "Offline Git or patch code-impact review"
-  default_prompt: "Use $multi-repo-impact-review to review this Git change or task directory and verify its business and call-chain impact."
+  short_description: "Local, remote Git, or patch impact review"
+  default_prompt: "Use $multi-repo-impact-review to review this local project, Git branch, or patch task and verify its business and call-chain impact."

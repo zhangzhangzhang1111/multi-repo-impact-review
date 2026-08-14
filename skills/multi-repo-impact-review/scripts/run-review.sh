@@ -23,6 +23,8 @@ BASE=""
 HEAD_REF=""
 PROJECT_ID=""
 REPOSITORY_ID=""
+GIT_URL=""
+BRANCH=""
 DEPTH=2
 NODE_BUDGET=120
 TRACE_LIMIT=30
@@ -33,8 +35,11 @@ usage() {
 Usage:
   run-review.sh --task-root <task_id_dir> [--mode auto|git|patch]
   run-review.sh --repo <path> --out <codegraph_dir> [--mode git|patch] [options]
+  run-review.sh --git-url <url> [--branch <name>] --out <codegraph_dir> [options]
 
 Options:
+  --git-url <url>      Clone a Git repository before review (network required)
+  --branch <name>      Branch to check out with --git-url (default remote HEAD)
   --diff <file>         Unified diff for patch mode
   --base <ref>          Git base ref (default HEAD~1)
   --head <ref>          Git head ref (default HEAD; WORKTREE is accepted)
@@ -60,6 +65,8 @@ while [ "$#" -gt 0 ]; do
     --head) HEAD_REF=$2; shift 2 ;;
     --project-id) PROJECT_ID=$2; shift 2 ;;
     --repository) REPOSITORY_ID=$2; shift 2 ;;
+    --git-url) GIT_URL=$2; shift 2 ;;
+    --branch) BRANCH=$2; shift 2 ;;
     --depth) DEPTH=$2; shift 2 ;;
     --node-budget) NODE_BUDGET=$2; shift 2 ;;
     --trace-limit) TRACE_LIMIT=$2; shift 2 ;;
@@ -145,7 +152,13 @@ resolve_from_task() {
   TASK_ROOT=$(CDPATH= cd -- "$TASK_ROOT" && pwd)
   TASK_JSON="$TASK_ROOT/task.json"
 
-  if [ -z "$REPO" ]; then
+  if [ -z "$GIT_URL" ]; then
+    GIT_URL=$(json_field "$TASK_JSON" gitUrl)
+    [ -n "$GIT_URL" ] || GIT_URL=$(json_field "$TASK_JSON" git_url)
+  fi
+  if [ -z "$BRANCH" ]; then BRANCH=$(json_field "$TASK_JSON" branch); fi
+
+  if [ -z "$REPO" ] && [ -z "$GIT_URL" ]; then
     CONFIG_REPO=$(json_field "$TASK_JSON" sourceDirectory)
     [ -n "$CONFIG_REPO" ] || CONFIG_REPO=$(json_field "$TASK_JSON" source_directory)
     REPO=${CONFIG_REPO:-repo}
@@ -181,8 +194,22 @@ resolve_from_task() {
 }
 
 resolve_from_task
-[ -n "$REPO" ] || { echo "FATAL: --task-root or --repo is required" >&2; exit 2; }
 [ -n "$OUT" ] || { echo "FATAL: --out is required when --task-root is not used" >&2; exit 2; }
+if [ -n "$GIT_URL" ]; then
+  [ -z "$REPO" ] || { echo "FATAL: --repo and --git-url cannot be used together" >&2; exit 2; }
+  case "${MODE:-auto}" in auto|git) MODE=git ;; *) echo "FATAL: --git-url only supports git mode" >&2; exit 2 ;; esac
+  command -v git >/dev/null 2>&1 || { echo "FATAL: --git-url requires git" >&2; exit 1; }
+  mkdir -p "$OUT"
+  OUT=$(CDPATH= cd -- "$OUT" && pwd)
+  REMOTE_CHECKOUT="$OUT/input-repository"
+  [ ! -e "$REMOTE_CHECKOUT" ] || { echo "FATAL: $REMOTE_CHECKOUT already exists; use an empty codegraph directory" >&2; exit 2; }
+  if [ -n "$BRANCH" ]; then git clone --quiet --branch "$BRANCH" -- "$GIT_URL" "$REMOTE_CHECKOUT"
+  else git clone --quiet -- "$GIT_URL" "$REMOTE_CHECKOUT"
+  fi
+  REPO=$REMOTE_CHECKOUT
+  REPOSITORY_ID=$GIT_URL
+fi
+[ -n "$REPO" ] || { echo "FATAL: --task-root, --repo, or --git-url is required" >&2; exit 2; }
 [ -d "$REPO" ] || { echo "FATAL: source directory does not exist: $REPO" >&2; exit 2; }
 [ -x "$CBM_LAUNCHER" ] || { echo "FATAL: missing bundled graph-engine launcher: $CBM_LAUNCHER" >&2; exit 1; }
 [ -f "$PROJECT_MAP" ] || { echo "FATAL: missing project routing map" >&2; exit 1; }

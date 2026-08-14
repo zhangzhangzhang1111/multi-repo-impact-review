@@ -5,7 +5,7 @@ SOURCE_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 PLATFORM=""
 ENGINE=""
 OUT_DIR="$SOURCE_ROOT/dist"
-VERSION=2.2.2
+VERSION=2.3.0
 
 while [ "$#" -gt 0 ]; do
   case "$1" in

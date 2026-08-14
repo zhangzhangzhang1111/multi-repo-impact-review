@@ -1,6 +1,6 @@
 ---
 name: multi-repo-impact-review
-description: Perform offline, impact-aware code review across multiple repositories and languages, including C, C++, Lua, and TransMid_Lua broker adapters, with the bundled official codebase-memory-mcp graph engine. Use for complete Git repositories, Git branch or worktree diffs, extracted source snapshots accompanied by changes.diff, task_id/repo/diff/codegraph/report task directories, bounded call-chain and blast-radius analysis, C/C++-Lua binding review, project-specific knowledge routing, tester-facing business impact, developer-actionable findings, and AI verification of graph paths against source.
+description: Perform impact-aware code review across local or remote Git repositories and extracted source snapshots, including C, C++, Lua, and TransMid_Lua broker adapters, with the bundled official codebase-memory-mcp graph engine. Use for project-directory review, Git URL and branch input, Git branch or worktree diffs, changes.diff patch tasks, bounded call-chain and blast-radius analysis, C/C++-Lua binding review, project-specific knowledge routing, tester-facing business impact, developer-actionable findings, and AI verification of graph paths against source.
 ---
 
 # Multi-Repo Impact Review
@@ -24,6 +24,7 @@ task_id/
 Read `references/task-input.md` when configuring task metadata or choosing a mode.
 
 - Use `git` mode when `repo/.git` exists and the requested change is defined by base/head refs or a dirty worktree.
+- Use `--git-url <url> --branch <name>` to clone a remote branch into `codegraph/input-repository` and review it in Git mode. Network access is required only for this explicit input form.
 - Use `patch` mode when `repo/` is an extracted current snapshot and `diff/changes.diff` describes base-to-current changes.
 - Use `auto` to prefer a supplied non-empty diff, otherwise use Git. An explicit CLI mode overrides `task.json`.
 - Reject a snapshot with neither Git history nor a diff as a change-impact review. It can only support a current-state audit.
@@ -47,6 +48,18 @@ For an existing Git checkout without a task directory, run:
 
 ```sh
 scripts/run-review.sh --repo /absolute/repo --base origin/main --head HEAD --out /absolute/codegraph --mode git
+```
+
+From inside the project, use `--repo .` and keep output outside the checkout:
+
+```sh
+scripts/run-review.sh --repo . --base HEAD~1 --head HEAD --out ../impact-review/codegraph --report ../impact-review/report --mode git
+```
+
+To clone and review a branch directly:
+
+```sh
+scripts/run-review.sh --git-url ssh://git.example/team/project.git --branch feature-x --base origin/main --head HEAD --out /absolute/codegraph --report /absolute/report
 ```
 
 Never place `codegraph/` inside `repo/`. Never execute scripts from the reviewed repository.
@@ -106,4 +119,4 @@ Do not add standalone code-change-overview, duplicated regression-scope, or revi
 - Keep the official portable graph at `codegraph/graph.db.zst`.
 - Do not claim a patch-mode result came from Git history.
 - Do not claim full coverage when build flags, generated code, dynamic registration, runtime configuration, or node budgets leave a relevant path unresolved.
-- Do not use package managers or network clients. Run `scripts/verify-offline.sh` or `scripts/verify-offline.ps1` after installation.
+- Do not use package managers. Use the network only when the user explicitly supplies `--git-url`; rely on Git credential configuration and never embed credentials in task metadata. Run `scripts/verify-offline.sh` or `scripts/verify-offline.ps1` after installation.

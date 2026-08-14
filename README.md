@@ -6,6 +6,27 @@ Skill 使用随包携带的官方开源 [`codebase-memory-mcp v0.10.2`](https://
 
 ## 支持的输入
 
+当前项目目录直接评审：
+
+```sh
+scripts/run-review.sh --repo . --base HEAD~1 --head HEAD \
+  --out ../impact-review/codegraph --report ../impact-review/report --mode git
+```
+
+直接输入 Git 地址和分支：
+
+```sh
+scripts/run-review.sh \
+  --git-url ssh://git.example/team/project.git \
+  --branch feature-x \
+  --base origin/main \
+  --head HEAD \
+  --out /data/tasks/TASK-123/codegraph \
+  --report /data/tasks/TASK-123/report
+```
+
+`--git-url` 会把仓库克隆到 `codegraph/input-repository`，这是唯一需要网络的输入形式；本地 Git 和 patch 模式仍可完全离线运行。不要把用户名、密码或 Token 写进 URL 或 `task.json`。
+
 完整 Git 仓库：
 
 ```text

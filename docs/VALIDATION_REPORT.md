@@ -1,5 +1,13 @@
 # Multi-Repo Impact Review v2.0.0 验证报告
 
+## v2.3.0 本地与远程 Git 输入验证
+
+- 支持在现有项目目录内通过 `--repo .` 评审 Git 变更，输出仍强制放在仓库外，避免污染目标项目。
+- 支持通过 `--git-url` 和 `--branch` 克隆远程分支；完整历史保留在 `codegraph/input-repository`，可使用 `origin/main` 等远端基线。
+- 远程 URL 仅在用户显式选择时访问网络；本地 Git、dirty worktree 和 patch 模式继续离线运行。
+- Shell 与 PowerShell 使用一致的互斥、分支选择、输出目录和凭据安全规则。
+- macOS ARM64 打包产物已通过 `file://` 模拟远端的完整流程：克隆指定分支、解析 `origin/main..HEAD`、建立官方图谱并生成 Git 影响证据。
+
 ## v2.2.2 模式化知识路由验证
 
 - patch 模式不再依赖原始 Git 地址：`changes.diff` 中任一规范化路径包含 `Transmid/` 即加载 `transmid-lua` 通用知识。
