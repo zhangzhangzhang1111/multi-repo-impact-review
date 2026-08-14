@@ -1,5 +1,12 @@
 # Multi-Repo Impact Review v2.0.0 验证报告
 
+## v2.2.0 TransMid_Lua 增量验证
+
+- 收录 `transmid.zip` 的 1 个知识地图和 10 个专题文档，并将未经目标源码验证的命令、字段、默认值、路径和处理顺序明确降级为候选知识。
+- 修正知识地图中不存在的 `request-cmd-resolver` 依赖，以及 `_save_old_data_` 的相互矛盾说明。
+- 新增 `*/TransMid_Lua/<broker>/<project>` 家族路由；示例 `.../TransMid_Lua/pingan/zy_all.git` 在 Git 模式和 patch 模式均命中 `common + transmid-lua`，对照路径未误命中。
+- 六个平台 v2.2.0 离线包均通过外层和包内校验和；macOS ARM64 额外通过官方运行时自检。其他平台受当前主机架构限制，未执行原生程序。
+
 ## 结论
 
 六个平台离线包均构建成功并通过压缩包完整性、逐文件校验和、清单和架构检查。macOS ARM64 包完成了实际解压、官方运行时自检、Codex 插件校验、Claude 插件与 marketplace 校验。`scriptswtlua` 的 Shell 与 PowerShell 评审流程均成功，且没有向被评审仓库写入文件。

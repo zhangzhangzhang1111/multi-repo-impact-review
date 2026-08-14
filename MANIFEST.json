@@ -1,6 +1,6 @@
 {
   "name": "multi-repo-impact-review",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "distribution": "pure Agent Skill; runnable platform packages contain one self-contained skill directory",
   "platforms": ["darwin-arm64", "darwin-amd64", "linux-amd64", "linux-arm64", "windows-amd64", "windows-arm64"],
   "agentHosts": ["Codex", "Claude Code"],
@@ -14,7 +14,7 @@
     "runtimePathTemplate": "runtime/<platform>/codebase-memory-mcp[.exe]"
   },
   "graphFormat": "codebase-memory-graph.db.zst",
-  "knowledgePacks": ["common", "embedded-lua-services", "scriptswtlua", "mobiwtlua"],
+  "knowledgePacks": ["common", "embedded-lua-services", "transmid-lua", "scriptswtlua", "mobiwtlua"],
   "callChainPolicy": {
     "defaultDepth": 2,
     "hardMaxDepth": 4,

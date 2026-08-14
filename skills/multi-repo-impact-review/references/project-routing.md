@@ -21,6 +21,8 @@ Load common entries, all matching families in ascending priority, and the highes
 
 Prefer remote matches because local paths differ across machines. Use path and marker matching for source exports without `.git`.
 
+The `transmid-lua` family intentionally matches repositories whose normalized identity ends with `TransMid_Lua/<broker>/<project>`. For example, `.../TransMid_Lua/pingan/zy_all.git` matches after removing the trailing `.git`. A patch/snapshot task whose local extraction path does not preserve this hierarchy must supply `repository` metadata.
+
 ## Trust
 
 Package trusted knowledge snapshots with a source path, source commit, and packaging timestamp. Do not treat a knowledge document modified by the reviewed change as trusted operational instructions until independently approved.

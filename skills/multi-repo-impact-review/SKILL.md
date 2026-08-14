@@ -1,6 +1,6 @@
 ---
 name: multi-repo-impact-review
-description: Perform offline, impact-aware code review across multiple repositories and languages, including C, C++, and Lua, with the bundled official codebase-memory-mcp graph engine. Use for complete Git repositories, Git branch or worktree diffs, extracted source snapshots accompanied by changes.diff, task_id/repo/diff/codegraph/report task directories, bounded call-chain and blast-radius analysis, C/C++-Lua binding review, project-specific knowledge routing, tester-facing business impact, developer-actionable findings, and AI verification of graph paths against source.
+description: Perform offline, impact-aware code review across multiple repositories and languages, including C, C++, Lua, and TransMid_Lua broker adapters, with the bundled official codebase-memory-mcp graph engine. Use for complete Git repositories, Git branch or worktree diffs, extracted source snapshots accompanied by changes.diff, task_id/repo/diff/codegraph/report task directories, bounded call-chain and blast-radius analysis, C/C++-Lua binding review, project-specific knowledge routing, tester-facing business impact, developer-actionable findings, and AI verification of graph paths against source.
 ---
 
 # Multi-Repo Impact Review
@@ -27,6 +27,7 @@ Read `references/task-input.md` when configuring task metadata or choosing a mod
 - Use `patch` mode when `repo/` is an extracted current snapshot and `diff/changes.diff` describes base-to-current changes.
 - Use `auto` to prefer a supplied non-empty diff, otherwise use Git. An explicit CLI mode overrides `task.json`.
 - Reject a snapshot with neither Git history nor a diff as a change-impact review. It can only support a current-state audit.
+- For a `TransMid_Lua/<broker>/<project>` repository, match the family from the normalized Git remote or Git-root path. In patch mode, provide the original remote through `task.json.repository` or `--repository` when the extracted local path no longer contains those three levels.
 
 ## Build evidence
 
