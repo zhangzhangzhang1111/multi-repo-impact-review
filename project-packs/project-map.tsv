@@ -1,6 +1,6 @@
-kind	id	priority	remote_glob	path_glob	markers	knowledge_file	cbmignore_file
-common	code-review-common	0	*	*	*	project-packs/common/review.md	-
-family	embedded-lua-services	20	*	*	deploy/project,deploy/wt_handleclientreq.lua	project-packs/families/embedded-lua-services.md	project-packs/families/embedded-lua-services.cbmignore
-family	transmid-lua	30	*/TransMid_Lua/*/*	*/TransMid_Lua/*/*	*	project-packs/families/transmid-lua/knowledge-map.md	-
-project	scriptswtlua	100	*gitlab-outer.myhexin.com/10jqka/intelligent-technology/zyyjy/sjzz/scriptswtlua	*scriptswtlua*	README.md,deploy/project	project-packs/projects/scriptswtlua/knowledge/SCRIPTSWTLUA_PROJECT_KNOWLEDGE.md	project-packs/projects/scriptswtlua/codebase-memory/.cbmignore
-project	mobiwtlua	100	*mobiwtlua*	*mobiwtlua*	src/WtLua,src/WtService	project-packs/projects/mobiwtlua/knowledge/MOBIWTLUA_PROJECT_KNOWLEDGE.md	-
+kind	id	priority	git_remote_glob	patch_project_glob	patch_diff_glob	markers	knowledge_file	cbmignore_file
+common	code-review-common	0	*	*	-	*	project-packs/common/review.md	-
+family	embedded-lua-services	20	*	*	-	deploy/project,deploy/wt_handleclientreq.lua	project-packs/families/embedded-lua-services.md	project-packs/families/embedded-lua-services.cbmignore
+family	transmid-lua	30	*/TransMid_Lua/*/*	-	*Transmid/*	*	project-packs/families/transmid-lua/knowledge-map.md	-
+project	scriptswtlua	100	*gitlab-outer.myhexin.com/10jqka/intelligent-technology/zyyjy/sjzz/scriptswtlua	*scriptswtlua*	-	README.md,deploy/project	project-packs/projects/scriptswtlua/knowledge/SCRIPTSWTLUA_PROJECT_KNOWLEDGE.md	project-packs/projects/scriptswtlua/codebase-memory/.cbmignore
+project	mobiwtlua	100	*mobiwtlua*	*mobiwtlua*	-	src/WtLua,src/WtService	project-packs/projects/mobiwtlua/knowledge/MOBIWTLUA_PROJECT_KNOWLEDGE.md	-

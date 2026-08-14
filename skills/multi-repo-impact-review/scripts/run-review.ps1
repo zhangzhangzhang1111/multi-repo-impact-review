@@ -171,6 +171,32 @@ function Convert-UnifiedDiff([string]$Path, [string]$Source, [string]$BaseValue,
   [IO.File]::WriteAllLines($ChangedList, @($Normalized | ForEach-Object {$_.path} | Sort-Object -Unique), $Utf8)
 }
 
+function Resolve-PatchSourceRoot([string]$ConfiguredRoot, [string]$PatchFile) {
+  $TemporaryRoot = Join-Path ([IO.Path]::GetTempPath()) ("impact-root-" + [Guid]::NewGuid())
+  New-Item -ItemType Directory -Path $TemporaryRoot | Out-Null
+  try {
+    $TemporaryJson = Join-Path $TemporaryRoot "changes.json"
+    $TemporaryList = Join-Path $TemporaryRoot "changed-files.txt"
+    Convert-UnifiedDiff $PatchFile "patch" "" "" $TemporaryJson $TemporaryList
+    $ChangedPaths = @(Get-Content $TemporaryList | Where-Object { $_ })
+    $Children = @(Get-ChildItem -LiteralPath $ConfiguredRoot -Directory | Where-Object { -not $_.Name.StartsWith('.') })
+    $VisibleFiles = @(Get-ChildItem -LiteralPath $ConfiguredRoot -File | Where-Object { -not $_.Name.StartsWith('.') })
+    $Candidates = @([IO.DirectoryInfo](Get-Item -LiteralPath $ConfiguredRoot)) + $Children
+    $Scores = foreach ($Candidate in $Candidates) {
+      $Score = @($ChangedPaths | Where-Object { Test-Path -LiteralPath (Join-Path $Candidate.FullName $_) }).Count
+      [pscustomobject]@{ root = $Candidate.FullName; score = $Score }
+    }
+    $Maximum = ($Scores | Measure-Object -Property score -Maximum).Maximum
+    $Best = @($Scores | Where-Object { $_.score -eq $Maximum })
+    if ($Maximum -gt 0 -and $Best.Count -gt 1) { throw "Patch paths match multiple source directories under $ConfiguredRoot; set sourceDirectory explicitly" }
+    if ($Maximum -gt 0) { return [IO.Path]::GetFullPath($Best[0].root) }
+    if ($Children.Count -eq 1 -and $VisibleFiles.Count -eq 0) { return [IO.Path]::GetFullPath($Children[0].FullName) }
+    return [IO.Path]::GetFullPath($ConfiguredRoot)
+  } finally {
+    Remove-Item -Recurse -Force $TemporaryRoot
+  }
+}
+
 $TaskConfig = $null
 if ($TaskRoot) {
   $TaskRoot = [IO.Path]::GetFullPath($TaskRoot)
@@ -202,6 +228,7 @@ if (-not (Test-Path $CbmLauncher -PathType Leaf)) { throw "Missing bundled graph
 if (-not (Test-Path $ProjectMap -PathType Leaf)) { throw "Missing project routing map" }
 
 $RepoRoot = [IO.Path]::GetFullPath($Repo)
+$ConfiguredRepoRoot = $RepoRoot
 if ($Mode -eq "auto") {
   if ($Diff -and (Test-Path $Diff -PathType Leaf) -and (Get-Item $Diff).Length -gt 0) { $Mode = "patch" }
   elseif (Test-Path (Join-Path $RepoRoot ".git") -PathType Container) { $Mode = "git" }
@@ -210,6 +237,7 @@ if ($Mode -eq "auto") {
 if (-not $Base) { $Base = "HEAD~1" }
 if (-not $Head -or $Head -eq "WORKTREE") { $Head = "HEAD" }
 if ($Mode -eq "patch" -and (-not $Diff -or -not (Test-Path $Diff -PathType Leaf) -or (Get-Item $Diff).Length -eq 0)) { throw "Patch mode requires a non-empty changes.diff" }
+if ($Mode -eq "patch") { $RepoRoot = Resolve-PatchSourceRoot $RepoRoot $Diff }
 if ($Mode -eq "git") {
   if (-not (Get-Command git -ErrorAction SilentlyContinue)) { throw "Git mode requires git" }
   $RepoRoot = [IO.Path]::GetFullPath(((Invoke-Git @("-C", $RepoRoot, "rev-parse", "--show-toplevel")) -join "").Trim())
@@ -217,6 +245,7 @@ if ($Mode -eq "git") {
 
 $Out = [IO.Path]::GetFullPath($Out)
 if ($Out.StartsWith($RepoRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw "Codegraph output must be outside repo/" }
+if ($Out.StartsWith($ConfiguredRepoRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw "Codegraph output must be outside repo/" }
 if (-not $Report) { $Report = Join-Path $Out "report" }
 $Report = [IO.Path]::GetFullPath($Report)
 New-Item -ItemType Directory -Force -Path $Out, $Report | Out-Null
@@ -228,7 +257,7 @@ $ChangesJson = Join-Path $Out "changes.json"
 $BaseSha = ""
 $HeadSha = ""
 $Dirty = $false
-$Remote = if ($Repository) { $Repository } else { $RepoRoot }
+$Remote = if ($Repository) { $Repository } else { "" }
 
 if ($Mode -eq "git") {
   $BaseSha = ((Invoke-Git @("-C", $RepoRoot, "rev-parse", $Base)) -join "").Trim()
@@ -278,10 +307,17 @@ if (Test-Path (Split-Path -Parent $GitExclude)) { Add-Content -Encoding UTF8 $Gi
 $MatchesList = @()
 $IgnoreFiles = @()
 $BestProject = $null
+$ProjectDirectory = Split-Path -Leaf $RepoRoot
 foreach ($Row in (Import-Csv -Delimiter "`t" -Path $ProjectMap)) {
   $MarkerOk = $true
   if ($Row.markers -ne "*") { foreach ($Marker in $Row.markers.Split(',')) { if (-not (Test-Path (Join-Path $RepoRoot $Marker))) { $MarkerOk = $false } } }
-  $IdentityOk = (($Row.remote_glob -eq "*") -and ($Row.path_glob -eq "*")) -or (($Row.remote_glob -ne "*") -and ($Remote -like $Row.remote_glob)) -or (($Row.path_glob -ne "*") -and ($RepoRoot -like $Row.path_glob))
+  if ($Mode -eq "git") {
+    $IdentityOk = $Row.git_remote_glob -ne "-" -and $Remote -like $Row.git_remote_glob
+  } else {
+    $ProjectMatch = $Row.patch_project_glob -ne "-" -and $ProjectDirectory -like $Row.patch_project_glob
+    $DiffMatch = $Row.patch_diff_glob -ne "-" -and @($ChangedFiles | Where-Object { $_ -like $Row.patch_diff_glob }).Count -gt 0
+    $IdentityOk = $ProjectMatch -or $DiffMatch
+  }
   if ($ProjectId -and $Row.kind -eq "project") { $IdentityOk = $Row.id -eq $ProjectId }
   if ($IdentityOk -and $MarkerOk) {
     $MatchesList += [ordered]@{kind=$Row.kind; id=$Row.id; priority=[int]$Row.priority; knowledge=$Row.knowledge_file}
@@ -291,7 +327,7 @@ foreach ($Row in (Import-Csv -Delimiter "`t" -Path $ProjectMap)) {
 }
 if ($ProjectId -and ($null -eq $BestProject -or $BestProject.id -ne $ProjectId)) { throw "Project pack '$ProjectId' did not match its required marker files" }
 
-$Detection = [ordered]@{schemaVersion=3; changeMode=$Mode; root=$RepoRoot; analysisRoot=$Shadow; repository=$Remote; head=$HeadSha; matches=$MatchesList}
+$Detection = [ordered]@{schemaVersion=4; changeMode=$Mode; configuredRoot=$ConfiguredRepoRoot; root=$RepoRoot; projectDirectory=$ProjectDirectory; analysisRoot=$Shadow; repository=$Remote; head=$HeadSha; matches=$MatchesList}
 Write-Utf8 (Join-Path $Out "project-detection.json") (($Detection | ConvertTo-Json -Depth 8) + [Environment]::NewLine)
 if ($IgnoreFiles.Count -gt 0) {
   $IgnoreContent = foreach ($IgnoreFile in $IgnoreFiles) {
@@ -370,8 +406,8 @@ for ($Index = 0; $Index -lt $ChangedFiles.Count; $Index++) {
 Write-Utf8 (Join-Path $Out "verification-packet.md") $Packet.ToString()
 
 $Metadata = [ordered]@{
-  schemaVersion=3; engine=[ordered]@{name="codebase-memory-mcp"; version="0.10.2"; license="MIT"}; changeMode=$Mode
-  sourceRoot=$RepoRoot; analysisRoot=$Shadow; project=$CbmProject; base=$BaseSha; head=$HeadSha
+  schemaVersion=4; engine=[ordered]@{name="codebase-memory-mcp"; version="0.10.2"; license="MIT"}; changeMode=$Mode
+  configuredSourceRoot=$ConfiguredRepoRoot; sourceRoot=$RepoRoot; projectDirectory=$ProjectDirectory; analysisRoot=$Shadow; project=$CbmProject; base=$BaseSha; head=$HeadSha
   requestedDepth=$Depth; effectiveDepth=$Depth; hardDepthLimit=4; perTraceRowBudget=$TraceLimit; globalUniqueNodeBudget=$NodeBudget
   graphArtifact="graph.db.zst"; targetRepositoryModified=$false
 }

@@ -32,7 +32,7 @@ All fields are optional because CLI flags take precedence:
 ```
 
 - `changeMode`: `auto`, `git`, or `patch`.
-- `repository`: preserve the original Git URL or stable repository name when `repo/` is an archive. This enables path-independent knowledge routing.
+- `repository`: optionally override the Git remote identity. Patch routing does not require it: TransMid uses changed paths and project-specific packs use the extracted project directory name.
 - `projectId`: explicitly select a configured project pack when repository identity is unavailable. Marker files must still match.
 - `baseRef` and `headRef`: Git refs in Git mode; optional provenance strings in patch mode.
 
@@ -43,6 +43,8 @@ All fields are optional because CLI flags take precedence:
 3. Standard directory defaults.
 
 In `auto` mode, a non-empty configured diff selects patch mode even if `.git` exists. Without a diff, `.git` selects Git mode. Otherwise stop because there is no reliable change set.
+
+In patch mode, `repo/` may be the source root or a container with one extracted project directory. The runner selects the unique immediate child containing the changed paths, so `repo/zy_all/Transmid/...` aligns with diff paths such as `Transmid/...`. Set `sourceDirectory` explicitly when more than one child matches.
 
 ## Output
 

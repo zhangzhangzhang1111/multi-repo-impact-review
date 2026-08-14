@@ -27,7 +27,7 @@ Read `references/task-input.md` when configuring task metadata or choosing a mod
 - Use `patch` mode when `repo/` is an extracted current snapshot and `diff/changes.diff` describes base-to-current changes.
 - Use `auto` to prefer a supplied non-empty diff, otherwise use Git. An explicit CLI mode overrides `task.json`.
 - Reject a snapshot with neither Git history nor a diff as a change-impact review. It can only support a current-state audit.
-- For a `TransMid_Lua/<broker>/<project>` repository, match the family from the normalized Git remote or Git-root path. In patch mode, provide the original remote through `task.json.repository` or `--repository` when the extracted local path no longer contains those three levels.
+- In Git mode, match knowledge from the normalized `origin` URL. In patch mode, match the TransMid family when a changed path contains `Transmid/`, and match project-specific packs from the extracted source project directory name. If `repo/` contains one wrapper directory such as `repo/zy_all/`, resolve that child as the source root when it contains the changed paths.
 
 ## Build evidence
 

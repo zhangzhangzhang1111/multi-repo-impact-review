@@ -1,5 +1,13 @@
 # Multi-Repo Impact Review v2.0.0 验证报告
 
+## v2.2.2 模式化知识路由验证
+
+- patch 模式不再依赖原始 Git 地址：`changes.diff` 中任一规范化路径包含 `Transmid/` 即加载 `transmid-lua` 通用知识。
+- patch 模式的专用项目知识按解压后的源码项目目录名匹配；`repo/zy_all/Transmid/...` 会自动将 `zy_all` 解析为源码根，并与 `Transmid/...` 变更路径对齐。
+- Git 模式仅按规范化远端地址匹配项目身份，仍以源码 marker 约束专用知识，避免本机目录名误命中。
+- Shell 和 PowerShell 路由规则保持一致，匹配证据记录实际源码根、配置入口根和项目目录名。
+- Shell 对非 UTF-8、混合换行的 patch 全程按字节解析，避免业务中文注释触发 locale 转换失败。
+
 ## v2.2.1 Git patch 路径兼容验证
 
 - 使用真实 `changes.diff` 验证 Git patch 模式；完整识别 5 个 Lua 修改文件和 1 个中文文件名的二进制 Excel 删除记录。

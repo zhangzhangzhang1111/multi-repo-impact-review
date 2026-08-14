@@ -88,6 +88,58 @@ normalize_repository() {
   printf '%s' "$VALUE"
 }
 
+score_changed_paths() {
+  SCORE_ROOT=$1
+  SCORE_LIST=$2
+  SCORE=0
+  while IFS= read -r SCORE_FILE; do
+    [ -n "$SCORE_FILE" ] || continue
+    [ -e "$SCORE_ROOT/$SCORE_FILE" ] && SCORE=$((SCORE + 1))
+  done < "$SCORE_LIST"
+  printf '%s' "$SCORE"
+}
+
+resolve_patch_source_root() {
+  CONFIGURED_ROOT=$1
+  PATCH_FILE=$2
+  RESOLVE_TMP=$(mktemp -d "${TMPDIR:-/tmp}/impact-root.XXXXXX")
+  RESOLVE_LIST="$RESOLVE_TMP/changed-files.txt"
+  LC_ALL=C awk -v source=patch -v base= -v head= -v diff_file=changes.diff -v list_file="$RESOLVE_LIST" -f "$DIFF_NORMALIZER" "$PATCH_FILE" >/dev/null
+
+  BEST_ROOT=$CONFIGURED_ROOT
+  BEST_SCORE=$(score_changed_paths "$CONFIGURED_ROOT" "$RESOLVE_LIST")
+  BEST_TIES=1
+  CHILD_COUNT=0
+  ONLY_CHILD=""
+  VISIBLE_FILE_COUNT=0
+  for ENTRY in "$CONFIGURED_ROOT"/*; do
+    [ -e "$ENTRY" ] || continue
+    if [ -d "$ENTRY" ]; then
+      CHILD_COUNT=$((CHILD_COUNT + 1))
+      ONLY_CHILD=$ENTRY
+      CHILD_SCORE=$(score_changed_paths "$ENTRY" "$RESOLVE_LIST")
+      if [ "$CHILD_SCORE" -gt "$BEST_SCORE" ]; then
+        BEST_ROOT=$ENTRY
+        BEST_SCORE=$CHILD_SCORE
+        BEST_TIES=1
+      elif [ "$CHILD_SCORE" -eq "$BEST_SCORE" ] && [ "$CHILD_SCORE" -gt 0 ]; then
+        BEST_TIES=$((BEST_TIES + 1))
+      fi
+    else
+      VISIBLE_FILE_COUNT=$((VISIBLE_FILE_COUNT + 1))
+    fi
+  done
+
+  rm -f "$RESOLVE_LIST"
+  rmdir "$RESOLVE_TMP"
+  if [ "$BEST_SCORE" -gt 0 ] && [ "$BEST_TIES" -gt 1 ]; then
+    echo "FATAL: patch paths match multiple source directories under $CONFIGURED_ROOT; set sourceDirectory explicitly" >&2
+    return 2
+  fi
+  if [ "$BEST_SCORE" -eq 0 ] && [ "$CHILD_COUNT" -eq 1 ] && [ "$VISIBLE_FILE_COUNT" -eq 0 ]; then BEST_ROOT=$ONLY_CHILD; fi
+  CDPATH= cd -- "$BEST_ROOT" && pwd
+}
+
 resolve_from_task() {
   [ -n "$TASK_ROOT" ] || return 0
   TASK_ROOT=$(CDPATH= cd -- "$TASK_ROOT" && pwd)
@@ -144,6 +196,7 @@ case "$TRACE_LIMIT" in *[!0-9]*|'') echo "FATAL: trace limit must be an integer"
 [ "$TRACE_LIMIT" -ge 1 ] && [ "$TRACE_LIMIT" -le 100 ] || { echo "FATAL: trace limit must be between 1 and 100" >&2; exit 2; }
 
 REPO_ROOT=$(CDPATH= cd -- "$REPO" && pwd)
+CONFIGURED_REPO_ROOT=$REPO_ROOT
 if [ -z "$MODE" ] || [ "$MODE" = "auto" ]; then
   if [ -n "$DIFF_FILE" ] && [ -s "$DIFF_FILE" ]; then MODE=patch
   elif [ -d "$REPO_ROOT/.git" ]; then MODE=git
@@ -154,6 +207,7 @@ case "$MODE" in git|patch) ;; *) echo "FATAL: mode must be auto, git, or patch" 
 
 if [ "$MODE" = "patch" ]; then
   [ -n "$DIFF_FILE" ] && [ -s "$DIFF_FILE" ] || { echo "FATAL: patch mode requires a non-empty changes.diff" >&2; exit 2; }
+  REPO_ROOT=$(resolve_patch_source_root "$REPO_ROOT" "$DIFF_FILE")
 fi
 if [ "$MODE" = "git" ]; then
   BASE=${BASE:-HEAD~1}
@@ -166,6 +220,7 @@ fi
 mkdir -p "$OUT"
 OUT=$(CDPATH= cd -- "$OUT" && pwd)
 case "$OUT/" in "$REPO_ROOT/"*) echo "FATAL: codegraph output must be outside repo/" >&2; exit 2 ;; esac
+case "$OUT/" in "$CONFIGURED_REPO_ROOT/"*) echo "FATAL: codegraph output must be outside repo/" >&2; exit 2 ;; esac
 [ -n "$REPORT_DIR" ] || REPORT_DIR="$OUT/report"
 mkdir -p "$REPORT_DIR"
 REPORT_DIR=$(CDPATH= cd -- "$REPORT_DIR" && pwd)
@@ -178,13 +233,13 @@ CHANGES_JSON="$OUT/changes.json"
 DIRTY=0
 BASE_SHA=""
 HEAD_SHA=""
-REMOTE=${REPOSITORY_ID:-$REPO_ROOT}
+REMOTE=${REPOSITORY_ID:-}
 
 if [ "$MODE" = "git" ]; then
   BASE_SHA=$(git -C "$REPO_ROOT" rev-parse "$BASE")
   HEAD_SHA=$(git -C "$REPO_ROOT" rev-parse "$HEAD_REF")
   CURRENT_SHA=$(git -C "$REPO_ROOT" rev-parse HEAD)
-  [ -n "$REPOSITORY_ID" ] || REMOTE=$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null || printf '%s' "$REPO_ROOT")
+  [ -n "$REPOSITORY_ID" ] || REMOTE=$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null || printf '')
   git -C "$REPO_ROOT" diff --quiet || DIRTY=1
   git -C "$REPO_ROOT" diff --cached --quiet || DIRTY=1
   [ -z "$(git -C "$REPO_ROOT" ls-files --others --exclude-standard)" ] || DIRTY=1
@@ -208,7 +263,7 @@ if [ "$MODE" = "git" ]; then
     done < "$OUT/.untracked-files"
   fi
   git -C "$SHADOW" diff --binary "$BASE_SHA" -- > "$SOURCE_DIFF"
-  awk -v source=git -v base="$BASE_SHA" -v head="$HEAD_SHA" -v diff_file="changes.diff" -v list_file="$CHANGED_FILES" -f "$DIFF_NORMALIZER" "$SOURCE_DIFF" > "$CHANGES_JSON"
+  LC_ALL=C awk -v source=git -v base="$BASE_SHA" -v head="$HEAD_SHA" -v diff_file="changes.diff" -v list_file="$CHANGED_FILES" -f "$DIFF_NORMALIZER" "$SOURCE_DIFF" > "$CHANGES_JSON"
 else
   mkdir "$SHADOW"
   cp -R "$REPO_ROOT/." "$SHADOW/"
@@ -217,7 +272,7 @@ else
   PATCH_SUM=$(cksum "$SOURCE_DIFF" | awk '{print $1}')
   BASE_SHA=${BASE:-unknown-base}
   HEAD_SHA=${HEAD_REF:-snapshot-$PATCH_SUM}
-  awk -v source=patch -v base="$BASE_SHA" -v head="$HEAD_SHA" -v diff_file="changes.diff" -v list_file="$CHANGED_FILES" -f "$DIFF_NORMALIZER" "$SOURCE_DIFF" > "$CHANGES_JSON"
+  LC_ALL=C awk -v source=patch -v base="$BASE_SHA" -v head="$HEAD_SHA" -v diff_file="changes.diff" -v list_file="$CHANGED_FILES" -f "$DIFF_NORMALIZER" "$SOURCE_DIFF" > "$CHANGES_JSON"
 fi
 REMOTE=$(normalize_repository "$REMOTE")
 
@@ -244,13 +299,19 @@ cbm_to_file() {
 MATCHES="$OUT/.matches.jsonl"
 IGNORE_FILES="$OUT/.cbmignore-files"
 : > "$MATCHES"; : > "$IGNORE_FILES"
+PROJECT_DIRECTORY=$(basename "$REPO_ROOT")
 TAB=$(printf '\t')
-sed '1d' "$PROJECT_MAP" | while IFS="$TAB" read -r KIND ID PRIORITY REMOTE_GLOB PATH_GLOB MARKERS KNOWLEDGE IGNORE_FILE; do
+sed '1d' "$PROJECT_MAP" | while IFS="$TAB" read -r KIND ID PRIORITY GIT_REMOTE_GLOB PATCH_PROJECT_GLOB PATCH_DIFF_GLOB MARKERS KNOWLEDGE IGNORE_FILE; do
   IDENTITY_OK=0
-  if [ "$REMOTE_GLOB" = "*" ] && [ "$PATH_GLOB" = "*" ]; then IDENTITY_OK=1
+  if [ "$MODE" = "git" ]; then
+    if [ "$GIT_REMOTE_GLOB" != "-" ]; then case "$REMOTE" in $GIT_REMOTE_GLOB) IDENTITY_OK=1 ;; esac; fi
   else
-    if [ "$REMOTE_GLOB" != "*" ]; then case "$REMOTE" in $REMOTE_GLOB) IDENTITY_OK=1 ;; esac; fi
-    if [ "$PATH_GLOB" != "*" ]; then case "$REPO_ROOT" in $PATH_GLOB) IDENTITY_OK=1 ;; esac; fi
+    if [ "$PATCH_PROJECT_GLOB" != "-" ]; then case "$PROJECT_DIRECTORY" in $PATCH_PROJECT_GLOB) IDENTITY_OK=1 ;; esac; fi
+    if [ "$PATCH_DIFF_GLOB" != "-" ]; then
+      while IFS= read -r CHANGED_FILE; do
+        case "$CHANGED_FILE" in $PATCH_DIFF_GLOB) IDENTITY_OK=1; break ;; esac
+      done < "$CHANGED_FILES"
+    fi
   fi
   if [ -n "$PROJECT_ID" ] && [ "$KIND" = "project" ] && [ "$ID" != "$PROJECT_ID" ]; then IDENTITY_OK=0; fi
   if [ -n "$PROJECT_ID" ] && [ "$KIND" = "project" ] && [ "$ID" = "$PROJECT_ID" ]; then IDENTITY_OK=1; fi
@@ -278,9 +339,11 @@ if [ -n "$PROJECT_ID" ] && [ "$BEST_PROJECT_ID" != "$PROJECT_ID" ]; then
 fi
 
 {
-  printf '{\n  "schemaVersion": 3,\n'
+  printf '{\n  "schemaVersion": 4,\n'
   printf '  "changeMode": "%s",\n' "$(json_escape "$MODE")"
+  printf '  "configuredRoot": "%s",\n' "$(json_escape "$CONFIGURED_REPO_ROOT")"
   printf '  "root": "%s",\n' "$(json_escape "$REPO_ROOT")"
+  printf '  "projectDirectory": "%s",\n' "$(json_escape "$PROJECT_DIRECTORY")"
   printf '  "analysisRoot": "%s",\n' "$(json_escape "$SHADOW")"
   printf '  "repository": "%s",\n' "$(json_escape "$REMOTE")"
   printf '  "head": "%s",\n  "matches": [' "$(json_escape "$HEAD_SHA")"
@@ -374,10 +437,12 @@ cat >> "$PACKET" <<'PACKET_END'
 PACKET_END
 
 {
-  printf '{\n  "schemaVersion": 3,\n'
+  printf '{\n  "schemaVersion": 4,\n'
   printf '  "engine": {"name":"codebase-memory-mcp","version":"0.10.2","license":"MIT"},\n'
   printf '  "changeMode": "%s",\n' "$MODE"
+  printf '  "configuredSourceRoot": "%s",\n' "$(json_escape "$CONFIGURED_REPO_ROOT")"
   printf '  "sourceRoot": "%s",\n' "$(json_escape "$REPO_ROOT")"
+  printf '  "projectDirectory": "%s",\n' "$(json_escape "$PROJECT_DIRECTORY")"
   printf '  "analysisRoot": "%s",\n' "$(json_escape "$SHADOW")"
   printf '  "project": "%s",\n' "$(json_escape "$CBM_PROJECT")"
   printf '  "base": "%s",\n  "head": "%s",\n' "$(json_escape "$BASE_SHA")" "$(json_escape "$HEAD_SHA")"

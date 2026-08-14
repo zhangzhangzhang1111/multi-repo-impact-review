@@ -2,16 +2,19 @@
 
 ## Match inputs
 
-Resolve the repository using normalized `origin` remote, Git root, absolute path, repository basename, and marker files. Normalize HTTP, HTTPS, SSH, and SCP-style Git remotes to `host/path/repository` without credentials or a trailing `.git`.
+Use mode-specific identity. In Git mode, normalize the `origin` remote to `host/path/repository` without credentials or a trailing `.git`. In patch mode, use changed paths for family routing and the resolved extracted project directory name for project-specific routing. Marker files remain mandatory when configured.
 
 `project-packs/project-map.tsv` uses tab-separated fields:
 
 ```text
-kind  id  priority  remote_glob  path_glob  markers  knowledge_file
+kind  id  priority  git_remote_glob  patch_project_glob  patch_diff_glob  markers  knowledge_file
 ```
 
 - `kind`: `common`, `family`, or `project`.
-- `markers`: comma-separated paths relative to the repository root.
+- `git_remote_glob`: normalized Git remote pattern; `-` disables Git matching.
+- `patch_project_glob`: extracted project directory-name pattern; `-` disables this patch rule.
+- `patch_diff_glob`: changed-file pattern; `-` disables this patch rule.
+- `markers`: comma-separated paths relative to the resolved source root.
 - `knowledge_file`: path relative to the installed skill root.
 - `*` and `?` are supported in glob fields.
 
@@ -19,9 +22,7 @@ kind  id  priority  remote_glob  path_glob  markers  knowledge_file
 
 Load common entries, all matching families in ascending priority, and the highest-priority matching project. Source code overrides project knowledge; project knowledge overrides family knowledge.
 
-Prefer remote matches because local paths differ across machines. Use path and marker matching for source exports without `.git`.
-
-The `transmid-lua` family intentionally matches repositories whose normalized identity ends with `TransMid_Lua/<broker>/<project>`. For example, `.../TransMid_Lua/pingan/zy_all.git` matches after removing the trailing `.git`. A patch/snapshot task whose local extraction path does not preserve this hierarchy must supply `repository` metadata.
+The `transmid-lua` family matches `.../TransMid_Lua/<broker>/<project>.git` from the remote in Git mode. In patch mode it matches when a normalized changed path contains `Transmid/`; it does not depend on the archive filename or original remote. Project packs such as `scriptswtlua` and `mobiwtlua` use the resolved extracted directory name in patch mode and the remote URL in Git mode.
 
 ## Trust
 
