@@ -1,9 +1,10 @@
 {
   "name": "multi-repo-impact-review",
-  "version": "2.0.0",
-  "distribution": "source-repository; runnable platform packages are published as GitHub Release assets",
+  "version": "2.1.0",
+  "distribution": "pure Agent Skill; runnable platform packages contain one self-contained skill directory",
   "platforms": ["darwin-arm64", "darwin-amd64", "linux-amd64", "linux-arm64", "windows-amd64", "windows-arm64"],
   "agentHosts": ["Codex", "Claude Code"],
+  "inputModes": ["git", "patch", "auto"],
   "networkRequired": false,
   "graphEngine": {
     "name": "codebase-memory-mcp",

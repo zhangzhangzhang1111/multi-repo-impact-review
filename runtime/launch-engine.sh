@@ -10,6 +10,6 @@ case "$(uname -s)-$(uname -m)" in
   *) echo "FATAL: unsupported platform $(uname -s)-$(uname -m)" >&2; exit 1 ;;
 esac
 
-CBM="$ROOT/runtime/$PLATFORM/codebase-memory-mcp"
-[ -x "$CBM" ] || { echo "FATAL: package does not contain runtime $PLATFORM" >&2; exit 1; }
-exec "$CBM" "$@"
+ENGINE=${MULTI_REPO_IMPACT_CBM:-"$ROOT/runtime/$PLATFORM/codebase-memory-mcp"}
+[ -x "$ENGINE" ] || { echo "FATAL: package does not contain executable runtime $PLATFORM" >&2; exit 1; }
+exec "$ENGINE" "$@"

@@ -12,7 +12,7 @@ kind  id  priority  remote_glob  path_glob  markers  knowledge_file
 
 - `kind`: `common`, `family`, or `project`.
 - `markers`: comma-separated paths relative to the repository root.
-- `knowledge_file`: path relative to the plugin root.
+- `knowledge_file`: path relative to the installed skill root.
 - `*` and `?` are supported in glob fields.
 
 ## Loading and precedence

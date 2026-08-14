@@ -1,83 +1,100 @@
-# Multi-Repo Impact Review
+# Multi-Repo Impact Review Skill
 
-面向 Codex 与 Claude Code 的离线多项目代码影响评审插件，支持 Lua、C、C++ 及其他由图谱引擎覆盖的语言。
+面向 Codex、Claude Code 等支持 `SKILL.md` 的 Agent 的离线代码影响评审 Skill。它不是插件，不需要 `.mcp.json`、插件市场或 MCP 服务注册。
 
-知识图谱只使用开源 [`codebase-memory-mcp v0.10.2`](https://github.com/DeusData/codebase-memory-mcp)，不包含自研图谱引擎。插件负责 Git 项目匹配、项目/项目族知识加载、业务影响分析、深度受限的调用链查询，以及 AI 对图谱调用边的源码复核。
+Skill 使用随包携带的官方开源 [`codebase-memory-mcp v0.10.2`](https://github.com/DeusData/codebase-memory-mcp) 命令行程序建立知识图谱，支持 Lua、C、C++ 及上游引擎覆盖的其他语言。图谱给出候选调用关系，AI 必须再次读取源码核验动态分派、回调和 C/C++-Lua 跨语言链路。
 
-## 下载
+## 支持的输入
 
-请从 [`v2.0.0 Release`](https://github.com/zhangzhangzhang1111/multi-repo-impact-review/releases/tag/v2.0.0) 下载与运行环境一致的完整离线包：
+完整 Git 仓库：
 
-| 运行环境 | Release 文件 |
-|---|---|
-| macOS Apple Silicon | `multi-repo-impact-review-offline-v2.0.0-darwin-arm64.tar.gz` |
-| macOS Intel | `multi-repo-impact-review-offline-v2.0.0-darwin-amd64.tar.gz` |
-| Linux x86_64 | `multi-repo-impact-review-offline-v2.0.0-linux-amd64.tar.gz` |
-| Linux ARM64 | `multi-repo-impact-review-offline-v2.0.0-linux-arm64.tar.gz` |
-| Windows x86_64 | `multi-repo-impact-review-offline-v2.0.0-windows-amd64.zip` |
-| Windows ARM64 | `multi-repo-impact-review-offline-v2.0.0-windows-arm64.zip` |
+```text
+task_id/
+├── repo/                 # 包含 .git
+├── codegraph/
+└── report/
+```
 
-本仓库保存可审查的插件源文件，不提交大型原生程序。直接运行请使用 Release 包，包内包含官方平台可执行程序、逐文件校验和、许可证、SBOM 和项目图谱。
+源码快照和外部 diff：
+
+```text
+task_id/
+├── task.json             # 可选
+├── repo/                 # 当前版本源码，无需 .git
+├── diff/
+│   └── changes.diff
+├── codegraph/
+└── report/
+```
+
+`auto` 模式优先使用非空 `changes.diff`，否则在存在 `.git` 时进入 Git 模式。两种模式都会生成统一的 `codegraph/changes.json`、官方 `graph.db.zst`、符号候选和 AI 核验材料。
 
 ## 安装
 
-解压后先验证：
+下载对应操作系统的离线包，把压缩包中的 `multi-repo-impact-review/` 整个目录放到 Skill 目录：
 
-```sh
-./scripts/verify-distribution.sh
+```text
+Codex:       ~/.codex/skills/multi-repo-impact-review/
+Claude Code: ~/.claude/skills/multi-repo-impact-review/
 ```
 
-Windows PowerShell：
+验证：
+
+```sh
+~/.codex/skills/multi-repo-impact-review/scripts/verify-offline.sh
+```
+
+Windows：
 
 ```powershell
-.\scripts\verify-distribution.ps1
-```
-
-安装到 Codex：
-
-```sh
-codex plugin marketplace add /absolute/path/to/extracted-package
-codex plugin add multi-repo-impact-review@impact-review-offline
-```
-
-安装到 Claude Code：
-
-```sh
-claude plugin marketplace add /absolute/path/to/extracted-package
-claude plugin install multi-repo-impact-review@impact-review-offline
+& "$HOME\.codex\skills\multi-repo-impact-review\scripts\verify-offline.ps1"
 ```
 
 ## 使用
 
-在项目目录中直接告诉 Codex 或 Claude：
+在 Agent 中说：
 
 ```text
-使用 multi-repo-impact-review 评审当前分支相对 origin/main 的改动，
-分析业务功能影响和具体代码问题，调用链最多分析 2 层。
+使用 $multi-repo-impact-review 评审 /data/tasks/TASK-123，
+输出测试关注的业务功能影响和开发需要修改的具体代码问题。
 ```
 
-Claude Code 也可以显式调用：
+也可以直接生成机器证据：
 
-```text
-/multi-repo-impact-review:multi-repo-impact-review
+```sh
+scripts/run-review.sh --task-root /data/tasks/TASK-123 --mode auto
 ```
 
-底层可执行程序是：
+完整 Git 仓库也保留原有入口：
 
-```text
-runtime/<platform>/codebase-memory-mcp[.exe]
+```sh
+scripts/run-review.sh \
+  --repo /data/repositories/project \
+  --base origin/main \
+  --head HEAD \
+  --out /data/tasks/TASK-123/codegraph \
+  --report /data/tasks/TASK-123/report \
+  --mode git
 ```
 
-`run-review.sh` / `run-review.ps1` 构建只读分析镜像并生成官方 `graph.db.zst`、影响结果和 AI 核验材料。调用链默认深度 2、硬上限 4，并同时限制单次结果和全局唯一节点数量。
+## 离线平台包
 
-## 测试结果
+- `darwin-arm64`
+- `darwin-amd64`
+- `linux-amd64`
+- `linux-arm64`
+- `windows-amd64`
+- `windows-arm64`
 
-`scriptswtlua` 效果测试生成 3274 个节点、15000 条边。官方图谱定位到两个变更函数，但漏掉 Lua 局部函数变量分派；AI 依据源码补全调用边并核验到客户端请求入口。调用链仅从深度 1 扩展到深度 2，共 5 个核心节点。
+源仓库不提交大型原生程序。使用 `scripts/build-offline-skill.sh` 将官方平台程序装入纯 Skill 分发包。
 
-- [完整验证报告](docs/VALIDATION_REPORT.md)
-- [scriptswtlua 人类可读评审报告](docs/scriptswtlua-ai-verified-effect-report.md)
-- [Release 文件 SHA256](release/SHA256SUMS)
+## 产物
 
-## 许可证与来源
+- `codegraph/changes.json`：Git 或 patch 统一变更清单。
+- `codegraph/graph.db.zst`：官方知识图谱产物。
+- `codegraph/official-impact-review.json`：Git 模式的官方 `detect_changes` 结果。
+- `codegraph/symbol-candidates/`：按变更文件生成的符号与覆盖率证据。
+- `codegraph/verification-packet.md`：AI 调用链和源码核验任务。
+- `report/review-report.md`：面向测试和开发的最终报告。
 
-插件代码使用 MIT License。`vendor/codebase-memory-mcp/` 保存上游许可证、第三方声明、SBOM、发布校验和及来源记录。Release 中的平台程序来自官方 v0.10.2 发布资产。
+许可证、上游校验和、SBOM 和来源记录保存在 Skill 包的 `vendor/codebase-memory-mcp/`。

@@ -5,7 +5,7 @@ $Os = if ($RuntimeInfo::IsOSPlatform([Runtime.InteropServices.OSPlatform]::Windo
 $ArchName = $RuntimeInfo::OSArchitecture.ToString().ToLowerInvariant()
 $Arch = if ($ArchName -eq "x64") { "amd64" } elseif ($ArchName -eq "arm64") { "arm64" } else { throw "Unsupported architecture: $ArchName" }
 $Executable = if ($Os -eq "windows") { "codebase-memory-mcp.exe" } else { "codebase-memory-mcp" }
-$Binary = Join-Path $Root ("runtime\$Os-$Arch\$Executable")
+$Binary = if ($env:MULTI_REPO_IMPACT_CBM) { $env:MULTI_REPO_IMPACT_CBM } else { Join-Path $Root ("runtime\$Os-$Arch\$Executable") }
 if (-not (Test-Path $Binary -PathType Leaf)) { throw "Package does not contain runtime $Os-$Arch" }
 & $Binary @args
 exit $LASTEXITCODE
