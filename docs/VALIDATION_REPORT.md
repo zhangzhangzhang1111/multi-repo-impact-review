@@ -1,5 +1,12 @@
 # Multi-Repo Impact Review v2.0.0 验证报告
 
+## v2.2.1 Git patch 路径兼容验证
+
+- 使用真实 `changes.diff` 验证 Git patch 模式；完整识别 5 个 Lua 修改文件和 1 个中文文件名的二进制 Excel 删除记录。
+- Shell 与 PowerShell 解析器均从 `diff --git` 头读取路径，支持 Git 双引号、反斜杠转义和 UTF-8 八进制字节序列。
+- 二进制文件即使没有 `---`、`+++` 和 hunk，也会进入 `changes.json` 与 `changed-files.txt`，并保留 `deleted` 状态。
+- 混合 CRLF/LF 的 patch 输入不影响文件、状态和 hunk 识别。
+
 ## v2.2.0 TransMid_Lua 增量验证
 
 - 收录 `transmid.zip` 的 1 个知识地图和 10 个专题文档，并将未经目标源码验证的命令、字段、默认值、路径和处理顺序明确降级为候选知识。

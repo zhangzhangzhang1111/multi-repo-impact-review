@@ -1,6 +1,6 @@
 {
   "name": "multi-repo-impact-review",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "distribution": "pure Agent Skill; runnable platform packages contain one self-contained skill directory",
   "platforms": ["darwin-arm64", "darwin-amd64", "linux-amd64", "linux-arm64", "windows-amd64", "windows-arm64"],
   "agentHosts": ["Codex", "Claude Code"],

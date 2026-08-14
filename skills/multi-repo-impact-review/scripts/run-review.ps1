@@ -71,14 +71,45 @@ function Normalize-RepositoryIdentity([string]$Value) {
 function Convert-UnifiedDiff([string]$Path, [string]$Source, [string]$BaseValue, [string]$HeadValue, [string]$OutputJson, [string]$ChangedList) {
   $Files = [Collections.Generic.List[object]]::new()
   $Current = $null
+  $SawOldMarker = $false
+  $SawNewMarker = $false
   function New-FileRecord {
     $Record = [ordered]@{ status = "modified"; oldPath = ""; path = ""; hunks = [Collections.Generic.List[object]]::new() }
     $Files.Add($Record)
     return $Record
   }
+  function ConvertFrom-GitQuotedPath([string]$Value) {
+    if (-not ($Value.StartsWith('"') -and $Value.EndsWith('"'))) { return $Value }
+    $Value = $Value.Substring(1, $Value.Length - 2)
+    $Bytes = [Collections.Generic.List[byte]]::new()
+    for ($Index = 0; $Index -lt $Value.Length; $Index++) {
+      $Character = $Value[$Index]
+      if ($Character -ne '\' -or $Index -eq $Value.Length - 1) {
+        $Bytes.AddRange([Text.Encoding]::UTF8.GetBytes([string]$Character))
+        continue
+      }
+
+      if ($Index + 3 -lt $Value.Length) {
+        $Octal = $Value.Substring($Index + 1, 3)
+        if ($Octal -match '^[0-7]{3}$') {
+          $Bytes.Add([Convert]::ToByte($Octal, 8))
+          $Index += 3
+          continue
+        }
+      }
+
+      $Index++
+      $Escaped = $Value[$Index]
+      if ($Escaped -eq 'n') { $Bytes.Add(10) }
+      elseif ($Escaped -eq 'r') { $Bytes.Add(13) }
+      elseif ($Escaped -eq 't') { $Bytes.Add(9) }
+      else { $Bytes.AddRange([Text.Encoding]::UTF8.GetBytes([string]$Escaped)) }
+    }
+    return [Text.Encoding]::UTF8.GetString($Bytes.ToArray())
+  }
   function Clean-DiffPath([string]$Value) {
     $Value = ($Value -replace "`r$", "") -replace "`t.*$", ""
-    if ($Value.StartsWith('"') -and $Value.EndsWith('"')) { $Value = $Value.Substring(1, $Value.Length - 2) }
+    $Value = ConvertFrom-GitQuotedPath $Value
     if ($Value -match '^[ab]/') { $Value = $Value.Substring(2) }
     return $Value
   }
@@ -88,13 +119,34 @@ function Convert-UnifiedDiff([string]$Path, [string]$Source, [string]$BaseValue,
   }
 
   foreach ($Line in [IO.File]::ReadLines($Path)) {
-    if ($Line.StartsWith("diff --git ")) { $Current = New-FileRecord; continue }
-    if ($Line.StartsWith("--- ")) {
-      if ($null -eq $Current -or $Current.path) { $Current = New-FileRecord }
-      $Current.oldPath = Clean-DiffPath $Line.Substring(4)
+    if ($Line -match '^diff --git ("(?:\\.|[^"])*"|\S+) ("(?:\\.|[^"])*"|\S+)$') {
+      $Current = New-FileRecord
+      $SawOldMarker = $false
+      $SawNewMarker = $false
+      $Current.oldPath = Clean-DiffPath $Matches[1]
+      $Current.path = Clean-DiffPath $Matches[2]
       continue
     }
-    if ($Line.StartsWith("+++ ")) { if ($null -eq $Current) { $Current = New-FileRecord }; $Current.path = Clean-DiffPath $Line.Substring(4); continue }
+    if ($Line.StartsWith("--- ")) {
+      if ($null -eq $Current -or ($SawOldMarker -and $SawNewMarker)) {
+        $Current = New-FileRecord
+        $SawOldMarker = $false
+        $SawNewMarker = $false
+      }
+      $Current.oldPath = Clean-DiffPath $Line.Substring(4)
+      $SawOldMarker = $true
+      continue
+    }
+    if ($Line.StartsWith("+++ ")) {
+      if ($null -eq $Current) {
+        $Current = New-FileRecord
+        $SawOldMarker = $false
+        $SawNewMarker = $false
+      }
+      $Current.path = Clean-DiffPath $Line.Substring(4)
+      $SawNewMarker = $true
+      continue
+    }
     if ($Line.StartsWith("new file mode ")) { if ($null -eq $Current) { $Current = New-FileRecord }; $Current.status = "added"; continue }
     if ($Line.StartsWith("deleted file mode ")) { if ($null -eq $Current) { $Current = New-FileRecord }; $Current.status = "deleted"; continue }
     if ($Line.StartsWith("rename from ")) { if ($null -eq $Current) { $Current = New-FileRecord }; $Current.oldPath = Clean-DiffPath $Line.Substring(12); $Current.status = "renamed"; continue }

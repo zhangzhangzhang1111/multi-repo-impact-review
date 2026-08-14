@@ -8,26 +8,89 @@ function json_escape(value,    result) {
   result = value
   gsub(/\\/, "\\\\", result)
   gsub(/\"/, "\\\"", result)
+  gsub(/\n/, "\\n", result)
   gsub(/\r/, "", result)
   gsub(/\t/, "\\t", result)
+  return result
+}
+
+function git_unquote(value,    result, i, c, escaped, octal, code) {
+  if (value !~ /^\".*\"$/) return value
+  value = substr(value, 2, length(value) - 2)
+  result = ""
+  for (i = 1; i <= length(value); i++) {
+    c = substr(value, i, 1)
+    if (c != "\\" || i == length(value)) {
+      result = result c
+      continue
+    }
+
+    octal = substr(value, i + 1, 3)
+    if (octal ~ /^[0-7][0-7][0-7]$/) {
+      code = (substr(octal, 1, 1) + 0) * 64 + (substr(octal, 2, 1) + 0) * 8 + substr(octal, 3, 1) + 0
+      result = result sprintf("%c", code)
+      i += 3
+      continue
+    }
+
+    escaped = substr(value, ++i, 1)
+    if (escaped == "n") result = result "\n"
+    else if (escaped == "r") result = result "\r"
+    else if (escaped == "t") result = result "\t"
+    else result = result escaped
+  }
   return result
 }
 
 function clean_path(value) {
   sub(/\r$/, "", value)
   sub(/\t.*$/, "", value)
-  if (value ~ /^\".*\"$/) {
-    sub(/^\"/, "", value)
-    sub(/\"$/, "", value)
-  }
+  value = git_unquote(value)
   if (value ~ /^[ab]\//) value = substr(value, 3)
   return value
+}
+
+function next_git_token(value, start,    result, i, c, escaped) {
+  while (substr(value, start, 1) == " ") start++
+  result = ""
+  escaped = 0
+  if (substr(value, start, 1) == "\"") {
+    for (i = start; i <= length(value); i++) {
+      c = substr(value, i, 1)
+      result = result c
+      if (i == start) continue
+      if (escaped) {
+        escaped = 0
+      } else if (c == "\\") {
+        escaped = 1
+      } else if (c == "\"") {
+        git_token_next = i + 1
+        return result
+      }
+    }
+  } else {
+    for (i = start; i <= length(value) && substr(value, i, 1) != " "; i++) result = result substr(value, i, 1)
+    git_token_next = i
+    return result
+  }
+  git_token_next = length(value) + 1
+  return result
+}
+
+function parse_git_header(line,    value, first, second) {
+  value = substr(line, length("diff --git ") + 1)
+  first = next_git_token(value, 1)
+  second = next_git_token(value, git_token_next)
+  old_path[current] = clean_path(first)
+  new_path[current] = clean_path(second)
 }
 
 function begin_file() {
   current = ++file_count
   old_path[current] = ""
   new_path[current] = ""
+  saw_old_marker[current] = 0
+  saw_new_marker[current] = 0
   status[current] = "modified"
   hunk_count[current] = 0
 }
@@ -46,18 +109,21 @@ BEGIN {
 
 /^diff --git / {
   begin_file()
+  parse_git_header($0)
   next
 }
 
 /^--- / {
-  if (current == 0 || new_path[current] != "") begin_file()
+  if (current == 0 || (saw_old_marker[current] && saw_new_marker[current])) begin_file()
   old_path[current] = clean_path(substr($0, 5))
+  saw_old_marker[current] = 1
   next
 }
 
 /^\+\+\+ / {
   if (current == 0) begin_file()
   new_path[current] = clean_path(substr($0, 5))
+  saw_new_marker[current] = 1
   next
 }
 
