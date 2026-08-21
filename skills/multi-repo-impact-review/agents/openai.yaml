@@ -1,0 +1,4 @@
+interface:
+  display_name: "Multi-Repo Impact Review"
+  short_description: "Review the current branch with code graph evidence"
+  default_prompt: "Use $multi-repo-impact-review to review the current Git branch and return the source-verified Markdown conclusion."

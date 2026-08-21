@@ -1,0 +1,9 @@
+kind	id	priority	repository_globs	path_globs	markers	knowledge_file	cbmignore_file
+common	code-review-common	0	*	*	*	project-packs/common/review.md	-
+language	lua-review	10	*	**/*.lua	*	project-packs/languages/lua/review.md	-
+language	c-review	10	*	**/*.c,**/*.h	*	project-packs/languages/c/review.md	-
+language	cpp-review	10	*	**/*.cc,**/*.cpp,**/*.cxx,**/*.hh,**/*.hpp,**/*.hxx	*	project-packs/languages/cpp/review.md	-
+family	embedded-lua-services	20	*	**/*.lua,**/*.c,**/*.cc,**/*.cpp	deploy/project,deploy/wt_handleclientreq.lua	project-packs/families/embedded-lua-services.md	project-packs/families/embedded-lua-services.cbmignore
+family	transmid-lua	30	*TransMid_Lua*	**/*Transmid*/**,**/*.lua	*	project-packs/families/transmid-lua/knowledge-map.md	-
+project	scriptswtlua	100	*scriptswtlua*	**/*.lua	README.md,deploy/project	project-packs/projects/scriptswtlua/knowledge/SCRIPTSWTLUA_PROJECT_KNOWLEDGE.md	-
+project	mobiwtlua	100	*mobiwtlua*	**/*.c,**/*.cc,**/*.cpp,**/*.h,**/*.hpp,**/*.lua	src/WtLua,src/WtService	project-packs/projects/mobiwtlua/knowledge/MOBIWTLUA_PROJECT_KNOWLEDGE.md	-
