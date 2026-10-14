@@ -23,6 +23,16 @@ python <skill-installer>/install-skill-from-github.py `
 
 The installed directory is `$CODEX_HOME/skills/multi-repo-impact-review`.
 
+## Packaged project introductions
+
+The installable skill includes the restored project and family knowledge snapshots. Read the [project routing guide](skills/multi-repo-impact-review/references/project-routing.md) to select only a matching pack:
+
+- [scriptswtlua project introduction](skills/multi-repo-impact-review/project-packs/projects/scriptswtlua/knowledge/project.md) and [detailed knowledge](skills/multi-repo-impact-review/project-packs/projects/scriptswtlua/knowledge/SCRIPTSWTLUA_PROJECT_KNOWLEDGE.md)
+- [mobiwtlua project knowledge](skills/multi-repo-impact-review/project-packs/projects/mobiwtlua/knowledge/MOBIWTLUA_PROJECT_KNOWLEDGE.md)
+- [TransMid_Lua family knowledge map](skills/multi-repo-impact-review/project-packs/families/transmid-lua/knowledge-map.md)
+
+These are dated orientation snapshots. The reviewed source and its current CodeGraph index take precedence. The old portable graph database and engine configuration are not included.
+
 ## What it reviews
 
 - Local Git branches, commits, and dirty worktrees.

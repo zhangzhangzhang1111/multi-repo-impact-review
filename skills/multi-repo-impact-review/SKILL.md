@@ -7,6 +7,10 @@ description: Use when reviewing the blast radius, caller chains, business impact
 
 Use the installed CodeGraph environment as the only structural graph. Treat graph relations as candidates and verify every path retained in the report against current source.
 
+## Project knowledge
+
+When a source root matches a known project or family, read [references/project-routing.md](references/project-routing.md) and load only the matching packaged knowledge. The project map and introductions live inside this skill so they remain available after installation. Treat snapshots as orientation, not current-source proof; verify every retained claim with CodeGraph and current files.
+
 ## Establish the change set
 
 Read [references/task-input.md](references/task-input.md) when selecting an input mode.
