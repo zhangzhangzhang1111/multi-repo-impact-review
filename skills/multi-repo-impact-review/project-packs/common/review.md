@@ -1,10 +1,10 @@
 ---
 id: code-review-common
-scope: all repositories
+scope: 所有仓库
 ---
 
-# Common review knowledge
+# 通用评审知识
 
-Verify interface compatibility, error propagation, untrusted input handling, resource lifetime, concurrency, configuration behavior, platform and encoding assumptions, and regression coverage. Keep severity, blast radius, confidence, and business criticality as separate fields.
+核实接口兼容性、错误传递、不可信输入处理、资源生命周期、并发、配置行为、平台与编码假设及回归覆盖。严重等级、影响范围、置信度和业务重要性应分别记录。
 
-Treat the code graph as a discovery index. Confirm every edge used in a final impact path against source or an independent semantic analyzer.
+把代码图谱视为定位索引。最终影响路径中的每条关系都要回到源码或独立的语义分析器核实。

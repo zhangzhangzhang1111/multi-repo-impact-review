@@ -1,35 +1,35 @@
-# CodeGraph verification
+# CodeGraph 证据核验
 
-## Per-repository procedure
+## 单仓库流程
 
-1. Run `codegraph_status(projectPath=<root>)`. When uninitialized, follow higher-priority repository instructions and the host permission mechanism; ask once if they require confirmation, otherwise run `codegraph init -i` directly, then re-check status.
-2. Start from changed symbols and normalized diff hunks. Map stale-file hunks from current source, not from the stale graph.
-3. Call `codegraph_context` once per independent change area.
-4. Call `codegraph_impact(symbol=<changed symbol>, depth=2, projectPath=<root>)`. Expand to depth 3 or 4 only when the frontier has not reached an entry, business, external, or repository boundary.
-5. Call `codegraph_trace(from=<changed or entry symbol>, to=<known boundary symbol>, projectPath=<root>)` only after both endpoints are identified. The tool has no depth or limit parameter; use one call for the complete candidate path.
-6. Call `codegraph_explore(query=<specific symbols/files>, maxFiles=12, projectPath=<root>)` once per retained path or independent change area. If capped or truncated, split the query or read exact current files.
-7. Confirm calls, imports, registrations, bindings, routes, configuration, branch conditions, argument transformations, return/error handling, callbacks, and async handoffs in current source.
-8. Assign each cited relation one status: `confirmed`, `rejected`, `inferred`, `missing-added`, or `unresolved`.
+1. 调用 `codegraph_status(projectPath=<root>)`。未初始化时遵守优先级更高的仓库指令和宿主权限机制；若要求确认，只询问一次，否则直接运行 `codegraph init -i`，随后复查状态。
+2. 从改动符号和规范化 diff 片段入手。过期文件的片段应依据当前源码定位，不依赖过期图谱。
+3. 每个独立改动区域调用一次 `codegraph_context`。
+4. 调用 `codegraph_impact(symbol=<changed symbol>, depth=2, projectPath=<root>)`。只有前沿尚未到达入口、业务、外部或仓库边界时，才扩展到深度 3 或 4。
+5. 确定起点和终点后，才调用 `codegraph_trace(from=<changed or entry symbol>, to=<known boundary symbol>, projectPath=<root>)`。此工具没有深度或数量参数；一次调用取得完整候选路径。
+6. 每条保留路径或独立改动区域调用一次 `codegraph_explore(query=<specific symbols/files>, maxFiles=12, projectPath=<root>)`。结果达到上限或被截断时，拆分查询或读取准确的当前文件。
+7. 在当前源码中确认调用、导入、注册、绑定、路由、配置、分支条件、参数转换、返回值/错误处理、回调及异步交接。
+8. 每条引用的关系标记为 `confirmed`、`rejected`、`inferred`、`missing-added` 或 `unresolved`。
 
-A path crossing any stale or pending node remains a candidate or `unresolved` until every affected relation is verified in current source.
+经过任一过期或待同步节点的路径，在当前源码核实每条受影响关系之前，只能算候选或 `unresolved`。
 
-## Cross-repository joins
+## 跨仓库连接
 
-CodeGraph indexes are repository-local. Join repositories only with concrete source evidence on both sides: API route/client pair, RPC schema, message topic, shared configuration key, generated interface, file/data contract, or native/Lua binding. Record both repositories, files, lines, transformation, and error behavior. Without both sides, mark the join `inferred` or `unresolved`.
+CodeGraph 的索引以仓库为单位。只有双方源码都有具体证据时才能连接仓库，例如 API 路由与客户端、RPC 协议、消息主题、共享配置键、生成接口、文件/数据契约或原生代码与 Lua 的绑定。记录双方仓库、文件、行号、数据转换和错误行为；缺少任一侧证据时标记为 `inferred` 或 `unresolved`。
 
-## Budgets
+## 分析预算
 
-- Default impact depth: 2; hard maximum: 4.
-- At most 20 changed seed symbols across the review.
-- Stop expanding when a path reaches an entry point, business boundary, external boundary, repository boundary, or already-visited cycle.
-- Prefer one verified business path over many unverified branches.
+- 默认影响深度为 2，最高为 4。
+- 整次评审最多使用 20 个改动种子符号。
+- 路径到达入口点、业务边界、外部边界、仓库边界或已访问环路时停止扩展。
+- 少量已核实的业务路径优于大量未经核实的分支。
 
-## Common graph gaps
+## 常见图谱缺口
 
-- C/C++ macros, templates, overloads, virtual dispatch, function pointers, conditional compilation, generated code, and dynamic loading.
-- Lua function values, table dispatch, `:` versus `.`, metatables, module loaders, coroutines, and overwritten globals.
-- Framework callbacks, event registries, dependency injection, configuration-selected handlers, routes, message topics, shared tables, generated clients, and cross-index relations.
+- C/C++ 宏、模板、重载、虚函数分发、函数指针、条件编译、生成代码和动态加载。
+- Lua 函数值、表分发、`:` 与 `.` 的区别、元表、模块加载器、协程及被覆盖的全局变量。
+- 框架回调、事件注册表、依赖注入、由配置选择的处理器、路由、消息主题、共享表、生成客户端及跨索引关系。
 
-## Coverage language
+## 覆盖范围表述
 
-Pending indexing, stale nodes, parse gaps, capped/truncated results, unresolved dynamic dispatch, cross-index joins, or exhausted budgets are explicit limitations, never evidence of no impact. Business-impact statements may use confirmed relations and explicitly justified high-confidence inferred relations only.
+索引待同步、节点过期、解析缺口、结果达到上限或截断、动态分发未解、跨索引连接及预算耗尽都是明确限制，不能据此推断“无影响”。业务影响结论只能依据已确认关系，或有明确理由支持的高置信推断关系。

@@ -1,10 +1,10 @@
 ---
 id: embedded-lua-services
-scope: C/C++ hosts and separately delivered Lua business projects
+scope: C/C++ 宿主与独立交付的 Lua 业务项目
 ---
 
-# Embedded Lua project-family knowledge
+# 嵌入式 Lua 项目家族知识
 
-Inspect both sides of the native/script boundary. Verify exported Lua names, native registration, script load paths, entry-point signatures, serialization, return counts and types, coroutine or callback correlation, runtime version, module paths, encoding, hot reload, and deployment synchronization.
+同时检查原生代码与脚本两侧。核实暴露给 Lua 的名称、原生注册、脚本加载路径、入口签名、序列化、返回值数量与类型、协程或回调关联、运行时版本、模块路径、编码、热更新及部署同步。
 
-Do not assume a particular business identifier, routing table, binding framework, or directory name. Load project-specific rules for those details.
+不要假定特定业务标识、路由表、绑定框架或目录名；相关细节应加载匹配的项目知识后，再以当前源码核实。

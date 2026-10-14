@@ -1,36 +1,36 @@
-# Task input
+# 任务输入
 
-## Repository set
+## 仓库清单
 
-Resolve every repository before analysis. Record for each one:
+分析前先确定每个仓库，并记录：
 
-- repository identity and exact source root;
-- Git or patch mode;
-- base/head refs and SHAs, or patch path;
-- changed files and dirty-worktree scope;
-- CodeGraph status and stale/pending files.
+- 仓库身份和准确源码根目录；
+- Git 模式或补丁模式；
+- 基线/目标引用及提交 SHA，或补丁文件路径；
+- 改动文件和未提交改动范围；
+- CodeGraph 状态及过期/待同步文件。
 
-Run the CodeGraph preflight independently for every source root.
+每个源码根目录都要独立执行 CodeGraph 预检查。
 
-## Local Git checkout
+## 本地 Git 检出目录
 
-Use each repository root as `projectPath`. Resolve requested base/head refs, include relevant dirty-worktree changes, and record the exact SHAs and diff command. When no base is specified, prefer the tracked default branch such as `origin/main` or `origin/master`.
+把各仓库根目录作为 `projectPath`。解析指定的基线/目标引用，纳入相关的未提交改动，并记录准确 SHA 和 diff 命令。未指定基线时，优先使用已跟踪的默认分支，例如 `origin/main` 或 `origin/master`。
 
-## Remote Git URL
+## 远端 Git URL
 
-Only clone when the user explicitly supplies a Git URL. Use the requested branch and configured credentials; never embed credentials in the URL or task metadata. After cloning, treat the checkout as a local Git input.
+只有用户明确提供 Git URL 时才克隆。使用指定分支和已配置的凭证；不要把凭证写入 URL 或任务元数据。克隆后按本地 Git 输入处理。
 
-## Extracted snapshot plus patch
+## 解压源码快照与补丁
 
-Patch mode requires a current source directory and a `changes.diff` file. If the source directory contains one wrapper directory, select the unique child containing the changed paths. If no unique match exists, stop and ask for the source root.
+补丁模式必须同时有当前源码目录和 `changes.diff`。若源码目录只含一个包装层，选择其中唯一包含改动路径的子目录；无法唯一确定时停下询问源码根目录。
 
-Do not use Git-only change detection in patch mode. Normalize patch hunks, map them to current symbols, and report deleted-symbol evidence from the old side.
+补丁模式不得使用仅适用于 Git 的变更检测。规范化补丁片段，映射到当前符号；删除符号的证据从旧版本提取。
 
-## Required preflight
+## 必要的预检查
 
-For each root:
+对每个根目录：
 
-1. Resolve the exact source root.
-2. Run `codegraph_status`.
-3. If uninitialized, follow higher-priority repository instructions and the host permission mechanism; ask once if they require confirmation, otherwise run `codegraph init -i` directly, then re-check status.
-4. Keep generated reports outside reviewed source. Repository-local `.codegraph` is the only analysis artifact allowed inside it.
+1. 确定准确的源码根目录。
+2. 调用 `codegraph_status`。
+3. 未初始化时遵守优先级更高的仓库指令和宿主权限机制；若要求确认，只询问一次，否则直接运行 `codegraph init -i`，随后复查状态。
+4. 生成的报告放在被评审源码目录之外；仓库内只允许分析过程创建的 `.codegraph` 文件。
