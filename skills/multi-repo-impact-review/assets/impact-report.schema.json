@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "影响面报告（rawReportContent）",
+  "type": "object",
+  "required": [
+    "summary",
+    "changed_modules",
+    "changed_symbols",
+    "direct_impacts",
+    "indirect_impacts",
+    "impact_chains",
+    "risk_level",
+    "risks",
+    "test_suggestions",
+    "api_changes"
+  ],
+  "properties": {
+    "summary": {
+      "type": "string",
+      "minLength": 1
+    },
+    "changed_modules": {
+      "type": "array"
+    },
+    "changed_symbols": {
+      "type": "array"
+    },
+    "direct_impacts": {
+      "type": "array"
+    },
+    "indirect_impacts": {
+      "type": "array"
+    },
+    "impact_chains": {
+      "type": "array"
+    },
+    "risk_level": {
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    "risks": {
+      "type": "array"
+    },
+    "test_suggestions": {
+      "type": "array"
+    },
+    "api_changes": {
+      "type": "array"
+    }
+  },
+  "additionalProperties": false
+}

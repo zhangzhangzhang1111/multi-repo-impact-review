@@ -1,83 +1,56 @@
-# Multi-Repo Impact Review
+# 多仓库代码影响面评审
 
-面向 Codex 与 Claude Code 的离线多项目代码影响评审插件，支持 Lua、C、C++ 及其他由图谱引擎覆盖的语言。
+这是面向一个或多个 Git 仓库或源码快照的 Codex skill。它直接使用当前环境中的 CodeGraph，结合当前源码核实图谱候选关系，输出业务影响、代码问题和回归建议。
 
-知识图谱只使用开源 [`codebase-memory-mcp v0.10.2`](https://github.com/DeusData/codebase-memory-mcp)，不包含自研图谱引擎。插件负责 Git 项目匹配、项目/项目族知识加载、业务影响分析、深度受限的调用链查询，以及 AI 对图谱调用边的源码复核。
+## 环境要求
 
-## 下载
+- 可使用 CodeGraph 工具的 Codex 环境。
+- `PATH` 中可运行 `codegraph` 命令。
+- 评审 Git 仓库或远端分支时需要 Git。
+- Python 3（运行 JSON 格式校验脚本，仅使用标准库）。
 
-请从 [`v2.0.0 Release`](https://github.com/zhangzhangzhang1111/multi-repo-impact-review/releases/tag/v2.0.0) 下载与运行环境一致的完整离线包：
-
-| 运行环境 | Release 文件 |
-|---|---|
-| macOS Apple Silicon | `multi-repo-impact-review-offline-v2.0.0-darwin-arm64.tar.gz` |
-| macOS Intel | `multi-repo-impact-review-offline-v2.0.0-darwin-amd64.tar.gz` |
-| Linux x86_64 | `multi-repo-impact-review-offline-v2.0.0-linux-amd64.tar.gz` |
-| Linux ARM64 | `multi-repo-impact-review-offline-v2.0.0-linux-arm64.tar.gz` |
-| Windows x86_64 | `multi-repo-impact-review-offline-v2.0.0-windows-amd64.zip` |
-| Windows ARM64 | `multi-repo-impact-review-offline-v2.0.0-windows-arm64.zip` |
-
-本仓库保存可审查的插件源文件，不提交大型原生程序。直接运行请使用 Release 包，包内包含官方平台可执行程序、逐文件校验和、许可证、SBOM 和项目图谱。
+skill 会对每个源码根目录调用 `codegraph_status`；未初始化时默认运行 `codegraph init -i`，同时遵守优先级更高的仓库指令和宿主权限机制。
 
 ## 安装
 
-解压后先验证：
-
-```sh
-./scripts/verify-distribution.sh
-```
-
-Windows PowerShell：
+从此分支安装 skill 目录：
 
 ```powershell
-.\scripts\verify-distribution.ps1
+python <skill-installer>/install-skill-from-github.py `
+  --repo zhangzhangzhang1111/multi-repo-impact-review `
+  --ref agent/pure-skill-v2.1.0 `
+  --path skills/multi-repo-impact-review
 ```
 
-安装到 Codex：
+安装目录为 `$CODEX_HOME/skills/multi-repo-impact-review`。
 
-```sh
-codex plugin marketplace add /absolute/path/to/extracted-package
-codex plugin add multi-repo-impact-review@impact-review-offline
+## 随 skill 安装的项目介绍
+
+项目及家族知识快照随 skill 一起安装。根据[项目知识匹配规则](skills/multi-repo-impact-review/references/project-routing.md)只读取匹配资料：
+
+- [scriptswtlua 项目简介](skills/multi-repo-impact-review/project-packs/projects/scriptswtlua/knowledge/project.md)与[详细项目知识](skills/multi-repo-impact-review/project-packs/projects/scriptswtlua/knowledge/SCRIPTSWTLUA_PROJECT_KNOWLEDGE.md)。
+- [mobiwtlua 项目知识](skills/multi-repo-impact-review/project-packs/projects/mobiwtlua/knowledge/MOBIWTLUA_PROJECT_KNOWLEDGE.md)。
+- [TransMid_Lua 家族知识地图](skills/multi-repo-impact-review/project-packs/families/transmid-lua/knowledge-map.md)。
+
+这些资料是有日期的定位快照，最终以目标仓库的当前源码为准；旧的便携图数据库和图引擎配置不再随包提供。
+
+## 支持的评审输入
+
+- 本地 Git 分支、提交及未提交改动。
+- 用户明确提供的远端 Git URL 与分支。
+- 当前源码快照及配套的 `changes.diff`。
+- 跨仓库 API、消息、配置、生成客户端、数据契约和 C/C++—Lua 边界。
+
+## 证据与产物
+
+skill 使用 `codegraph_status` 检查索引，`codegraph_context` 定位改动区域，`codegraph_search` 处理未确定符号，`codegraph_impact` 分析影响范围，`codegraph_trace` 追踪具体路径，`codegraph_explore` 检查源码。过期文件直接读取；动态分发、跨索引连接、生成代码等缺口应在报告中说明。
+
+每次评审同时生成 Markdown 报告与 `impact-report.json`。JSON 根节点直接是 `rawReportContent` 解码后的影响面对象，不含 Kafka 外层字段；格式见 [JSON 模板](skills/multi-repo-impact-review/assets/impact-report.template.json)与 [JSON Schema](skills/multi-repo-impact-review/assets/impact-report.schema.json)。两份报告须依据相同证据，放在被评审源码目录之外。交付前运行 [格式校验脚本](skills/multi-repo-impact-review/scripts/validate-impact-json.py)：`python skills/multi-repo-impact-review/scripts/validate-impact-json.py <报告路径>`。
+
+## 验证
+
+```powershell
+node --test tests/skill-contract.test.mjs
 ```
 
-安装到 Claude Code：
-
-```sh
-claude plugin marketplace add /absolute/path/to/extracted-package
-claude plugin install multi-repo-impact-review@impact-review-offline
-```
-
-## 使用
-
-在项目目录中直接告诉 Codex 或 Claude：
-
-```text
-使用 multi-repo-impact-review 评审当前分支相对 origin/main 的改动，
-分析业务功能影响和具体代码问题，调用链最多分析 2 层。
-```
-
-Claude Code 也可以显式调用：
-
-```text
-/multi-repo-impact-review:multi-repo-impact-review
-```
-
-底层可执行程序是：
-
-```text
-runtime/<platform>/codebase-memory-mcp[.exe]
-```
-
-`run-review.sh` / `run-review.ps1` 构建只读分析镜像并生成官方 `graph.db.zst`、影响结果和 AI 核验材料。调用链默认深度 2、硬上限 4，并同时限制单次结果和全局唯一节点数量。
-
-## 测试结果
-
-`scriptswtlua` 效果测试生成 3274 个节点、15000 条边。官方图谱定位到两个变更函数，但漏掉 Lua 局部函数变量分派；AI 依据源码补全调用边并核验到客户端请求入口。调用链仅从深度 1 扩展到深度 2，共 5 个核心节点。
-
-- [完整验证报告](docs/VALIDATION_REPORT.md)
-- [scriptswtlua 人类可读评审报告](docs/scriptswtlua-ai-verified-effect-report.md)
-- [Release 文件 SHA256](release/SHA256SUMS)
-
-## 许可证与来源
-
-插件代码使用 MIT License。`vendor/codebase-memory-mcp/` 保存上游许可证、第三方声明、SBOM、发布校验和及来源记录。Release 中的平台程序来自官方 v0.10.2 发布资产。
+此仓库不包含捆绑的图引擎、便携图数据库、供应商运行时或包管理器依赖。

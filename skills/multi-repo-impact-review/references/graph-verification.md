@@ -1,37 +1,35 @@
-# Graph verification
+# CodeGraph 证据核验
 
-## Required procedure
+## 单仓库流程
 
-1. Read `analysis-metadata.json`; reject requested depth above 4 and retain its global/per-trace budgets.
-2. Start from changed symbols and the official `detect_changes` result. Prioritize externally reachable, state-changing, security-sensitive, persistence, protocol, and cross-language symbols.
-3. Call `trace_path` at depth 1 with `limit` no greater than the per-trace budget, `include_tests=false`, and `include_evidence=true`.
-4. Expand one level at a time only when the current frontier has not reached an entry point, business boundary, external boundary, repository boundary, or already-visited cycle. Never exceed depth 4.
-5. Stop adding paths when the global unique-node budget is exhausted. Do not follow `next` pagination merely to be exhaustive; paginate only for an unresolved high-risk path and deduct every returned row from the same budget.
-6. Open exact source bodies for every retained edge. Confirm the call expression, import, registration, binding, route, or configuration relation.
-7. Inspect branch conditions, argument transformation, return/error handling, async handoff, and callback registration. Search specifically for missing dynamic and cross-language edges.
-8. Run `check_index_coverage` for every cited file and relevant scope before any completeness or no-impact claim.
-9. Assign one status: `confirmed`, `rejected`, `inferred`, `missing-added`, or `unresolved`.
+1. 调用 `codegraph_status(projectPath=<root>)`。未初始化时遵守优先级更高的仓库指令和宿主权限机制；若要求确认，只询问一次，否则直接运行 `codegraph init -i`，随后复查状态。
+2. 从改动符号和规范化 diff 片段入手。过期文件的片段应依据当前源码定位，不依赖过期图谱。
+3. 每个独立改动区域调用一次 `codegraph_context`。
+4. 调用 `codegraph_impact(symbol=<changed symbol>, depth=2, projectPath=<root>)`。只有前沿尚未到达入口、业务、外部或仓库边界时，才扩展到深度 3 或 4。
+5. 确定起点和终点后，才调用 `codegraph_trace(from=<changed or entry symbol>, to=<known boundary symbol>, projectPath=<root>)`。此工具没有深度或数量参数；一次调用取得完整候选路径。
+6. 每条保留路径或独立改动区域调用一次 `codegraph_explore(query=<specific symbols/files>, maxFiles=12, projectPath=<root>)`。结果达到上限或被截断时，拆分查询或读取准确的当前文件。
+7. 在当前源码中确认调用、导入、注册、绑定、路由、配置、分支条件、参数转换、返回值/错误处理、回调及异步交接。
+8. 每条引用的关系标记为 `confirmed`、`rejected`、`inferred`、`missing-added` 或 `unresolved`。
 
-## Anti-expansion policy
+经过任一过期或待同步节点的路径，在当前源码核实每条受影响关系之前，只能算候选或 `unresolved`。
 
-- Defaults: depth 2, 30 rows per trace, 120 unique graph nodes for the review.
-- Hard limits: depth 4, 100 rows per trace, 400 unique graph nodes.
-- At most 20 changed seed symbols receive individual traces. When more exist, use `impacted_modules` to prioritize and report sampling.
-- Deduplicate qualified names across directions and seeds before charging the global budget.
-- Do not expand test-only branches unless the changed production path depends on them.
-- Treat `truncated`, `has_more`, skipped files, partial parses, and budget exhaustion as explicit limitations, never as evidence of no impact.
-- Prefer one verified business path over many unverified graph branches.
+## 跨仓库连接
 
-## Common graph gaps
+CodeGraph 的索引以仓库为单位。只有双方源码都有具体证据时才能连接仓库，例如 API 路由与客户端、RPC 协议、消息主题、共享配置键、生成接口、文件/数据契约或原生代码与 Lua 的绑定。记录双方仓库、文件、行号、数据转换和错误行为；缺少任一侧证据时标记为 `inferred` 或 `unresolved`。
 
-- C/C++ macros, templates, overloads, virtual dispatch, function pointers, conditional compilation, generated code, and `dlopen`/`dlsym`.
-- Lua function values, table dispatch, `:` versus `.`, metatables, `require` search paths, `dofile`, `loadfile`, coroutine resume, and overwritten globals.
-- Framework callbacks, event registries, dependency injection, configuration-selected handlers, HTTP/RPC routes, message topics, shared tables, and generated clients.
+## 分析预算
 
-## Evidence
+- 默认影响深度为 2，最高为 4。
+- 整次评审最多使用 20 个改动种子符号。
+- 路径到达入口点、业务边界、外部边界、仓库边界或已访问环路时停止扩展。
+- 少量已核实的业务路径优于大量未经核实的分支。
 
-Record repository, file, line, symbol, evidence type, detector, and confidence. A final business-impact statement may use only confirmed edges and explicitly justified high-confidence inferred edges.
+## 常见图谱缺口
 
-## Coverage
+- C/C++ 宏、模板、重载、虚函数分发、函数指针、条件编译、生成代码和动态加载。
+- Lua 函数值、表分发、`:` 与 `.` 的区别、元表、模块加载器、协程及被覆盖的全局变量。
+- 框架回调、事件注册表、依赖注入、由配置选择的处理器、路由、消息主题、共享表、生成客户端及跨索引关系。
 
-Verify all prioritized modified symbols, all cross-language and cross-repository boundaries, and complete high-risk paths to a business or external boundary within the declared budget. Mark the report partially verified when a budget truncates a still-relevant frontier, or when build metadata/runtime configuration is missing.
+## 覆盖范围表述
+
+索引待同步、节点过期、解析缺口、结果达到上限或截断、动态分发未解、跨索引连接及预算耗尽都是明确限制，不能据此推断“无影响”。业务影响结论只能依据已确认关系，或有明确理由支持的高置信推断关系。
