@@ -1,3 +1,0 @@
-# codebase-memory-mcp treats deploy as generated output by default.
-# Embedded Lua services keep production business code there, so include it.
-!deploy/

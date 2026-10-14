@@ -1,57 +1,36 @@
-# Task input contract
+# Task input
 
-## Standard directory
+## Repository set
 
-```text
-task_id/
-├── task.json
-├── repo/                    # optional when gitUrl is supplied
-├── diff/
-│   └── changes.diff
-├── codegraph/
-└── report/
-```
+Resolve every repository before analysis. Record for each one:
 
-`repo/` must contain the current source corresponding to the new side of `changes.diff`. It may be a full Git checkout or an extracted archive.
+- repository identity and exact source root;
+- Git or patch mode;
+- base/head refs and SHAs, or patch path;
+- changed files and dirty-worktree scope;
+- CodeGraph status and stale/pending files.
 
-## task.json
+Run the CodeGraph preflight independently for every source root.
 
-All fields are optional because CLI flags take precedence:
+## Local Git checkout
 
-```json
-{
-  "taskId": "TASK-123",
-  "changeMode": "auto",
-  "gitUrl": "ssh://git.example/team/project.git",
-  "branch": "feature-x",
-  "sourceDirectory": "repo",
-  "diffFile": "diff/changes.diff",
-  "repository": "ssh://git.example/team/scriptswtlua.git",
-  "projectId": "scriptswtlua",
-  "baseRef": "origin/main",
-  "headRef": "HEAD"
-}
-```
+Use each repository root as `projectPath`. Resolve requested base/head refs, include relevant dirty-worktree changes, and record the exact SHAs and diff command. When no base is specified, prefer the tracked default branch such as `origin/main` or `origin/master`.
 
-- `changeMode`: `auto`, `git`, or `patch`.
-- `gitUrl`: clone this repository into `codegraph/input-repository` and select Git mode. Do not include credentials in the URL.
-- `branch`: branch checked out for `gitUrl`; omit it to use the remote default branch.
-- `repository`: optionally override the Git remote identity. Patch routing does not require it: TransMid uses changed paths and project-specific packs use the extracted project directory name.
-- `projectId`: explicitly select a configured project pack when repository identity is unavailable. Marker files must still match.
-- `baseRef` and `headRef`: Git refs in Git mode; optional provenance strings in patch mode.
+## Remote Git URL
 
-## Precedence and detection
+Only clone when the user explicitly supplies a Git URL. Use the requested branch and configured credentials; never embed credentials in the URL or task metadata. After cloning, treat the checkout as a local Git input.
 
-1. Explicit command-line values.
-2. `task.json` values.
-3. Standard directory defaults.
+## Extracted snapshot plus patch
 
-In `auto` mode, a non-empty configured diff selects patch mode even if `.git` exists. Without a diff, `.git` selects Git mode. Otherwise stop because there is no reliable change set.
+Patch mode requires a current source directory and a `changes.diff` file. If the source directory contains one wrapper directory, select the unique child containing the changed paths. If no unique match exists, stop and ask for the source root.
 
-When `gitUrl` is supplied, `repo/` is not required. The runner clones the requested branch with full history so `baseRef` can reference another fetched branch such as `origin/main`. This is the only input form that requires network access.
+Do not use Git-only change detection in patch mode. Normalize patch hunks, map them to current symbols, and report deleted-symbol evidence from the old side.
 
-In patch mode, `repo/` may be the source root or a container with one extracted project directory. The runner selects the unique immediate child containing the changed paths, so `repo/zy_all/Transmid/...` aligns with diff paths such as `Transmid/...`. Set `sourceDirectory` explicitly when more than one child matches.
+## Required preflight
 
-## Output
+For each root:
 
-`codegraph/` contains `changes.json`, copied `changes.diff`, the official `graph.db.zst`, graph/index evidence, symbol candidates, traversal instructions, and analysis metadata. `report/review-report.md` is a draft until the AI finishes source verification and writes the final human review.
+1. Resolve the exact source root.
+2. Run `codegraph_status`.
+3. If uninitialized, follow higher-priority repository instructions and the host permission mechanism; ask once if they require confirmation, otherwise run `codegraph init -i` directly, then re-check status.
+4. Keep generated reports outside reviewed source. Repository-local `.codegraph` is the only analysis artifact allowed inside it.
