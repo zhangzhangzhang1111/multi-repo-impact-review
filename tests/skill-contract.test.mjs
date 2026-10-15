@@ -57,6 +57,17 @@ test('report template has an independent technical appendix', () => {
   assert.match(read(path.join(skill, 'assets', 'report-template.md')), /^## 4\. 技术证据与限制$/m);
 });
 
+test('report instructions preserve test detail and Markdown/JSON parity', () => {
+  const instructions = read(path.join(skill, 'SKILL.md'));
+  const reportTemplate = read(path.join(skill, 'assets', 'report-template.md'));
+  for (const phrase of ['详细程度相当', '从 Markdown 到 JSON', '从 JSON 到 Markdown', 'test_suggestions', '前置条件', '操作步骤', '当前行为还是修复后验收']) {
+    assert.ok(instructions.includes(phrase), `SKILL.md: ${phrase}`);
+  }
+  for (const phrase of ['测试编号', '前置条件', '操作步骤', '预期结果', '验证阶段']) {
+    assert.ok(reportTemplate.includes(phrase), `report-template.md: ${phrase}`);
+  }
+});
+
 test('JSON template matches the decoded rawReportContent contract', () => {
   const template = JSON.parse(read(path.join(skill, 'assets', 'impact-report.template.json')));
   const schema = JSON.parse(read(path.join(skill, 'assets', 'impact-report.schema.json')));

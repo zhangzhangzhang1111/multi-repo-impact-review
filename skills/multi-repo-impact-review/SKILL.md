@@ -53,7 +53,13 @@ description: 当需要评审一个或多个本地或远端 Git 仓库、源码�
 
 同时在 Markdown 报告所在目录生成 `impact-report.json`。以 [JSON 模板](assets/impact-report.template.json)为起点；文件根节点就是解码后的 `rawReportContent` 对象，不得包一层 `rawReportContent`，也不得加入 Kafka 的 `packUser`、`jiraInfo`、`status` 等字段。保留模板中的 10 个顶层字段；`summary` 填非空摘要，`risk_level` 填 `low`、`medium` 或 `high`，其余字段保持数组。没有已核实内容时用 `[]`，不要补造影响、接口变化或测试建议。
 
-Markdown 与 JSON 必须来自同一份已核实证据，影响路径、风险及风险等级要一致。交付前运行 `python <skill 根目录>/scripts/validate-impact-json.py <impact-report.json>`；[格式校验脚本](scripts/validate-impact-json.py)会解析文件并按 [JSON Schema](assets/impact-report.schema.json)检查必需字段、类型、风险等级和额外字段。校验失败时先修正，不能交付。最终回复同时给出 Markdown 和 JSON 的路径。
+Markdown 与 JSON 是同一份评审的两种表达，JSON 不能降格为摘要。先整理已核实的事实，再分别写成两种格式；两边的结论、影响场景、触发条件、可观察结果、问题、修复要求、验收标准和核验限制要逐项对应，详细程度相当。JSON 数组可以使用对象保留这些字段，不要把 Markdown 中的完整问题表或业务场景压缩成标题和一句概括。
+
+逐字段核对：`summary` 包含评审范围、结论、风险、置信度、问题数量和验证限制；`changed_modules`、`changed_symbols` 对应改动文件与符号；`direct_impacts`、`indirect_impacts` 对应业务影响及边界；`impact_chains` 保留路径、证据位置和关系状态；`risks` 每项保留编号、准确位置、触发条件、错误行为、后果、修改方式及完成标准；`test_suggestions` 与 Markdown 的测试场景逐项对应，并写清测试编号、前置条件、操作步骤、预期结果，以及当前行为还是修复后验收；`api_changes` 只记录已核实的接口变化。某项没有已核实内容时两边都明确说明范围，并在对应 JSON 数组中使用空数组。
+
+交付前从 Markdown 到 JSON、再从 JSON 到 Markdown 各核对一次，确认没有一侧独有的结论、问题或测试要求。格式校验只能证明 JSON 结构合法，不能替代这项内容核对。
+
+交付前运行 `python <skill 根目录>/scripts/validate-impact-json.py <impact-report.json>`；[格式校验脚本](scripts/validate-impact-json.py)会解析文件并按 [JSON Schema](assets/impact-report.schema.json)检查必需字段、类型、风险等级和额外字段。校验失败时先修正，不能交付。最终回复同时给出 Markdown 和 JSON 的路径。
 
 风险与合并结论按以下标准确定：
 

@@ -45,7 +45,7 @@ python <skill-installer>/install-skill-from-github.py `
 
 skill 使用 `codegraph_status` 检查索引，`codegraph_context` 定位改动区域，`codegraph_search` 处理未确定符号，`codegraph_impact` 分析影响范围，`codegraph_trace` 追踪具体路径，`codegraph_explore` 检查源码。过期文件直接读取；动态分发、跨索引连接、生成代码等缺口应在报告中说明。
 
-每次评审同时生成 Markdown 报告与 `impact-report.json`。JSON 根节点直接是 `rawReportContent` 解码后的影响面对象，不含 Kafka 外层字段；格式见 [JSON 模板](skills/multi-repo-impact-review/assets/impact-report.template.json)与 [JSON Schema](skills/multi-repo-impact-review/assets/impact-report.schema.json)。两份报告须依据相同证据，放在被评审源码目录之外。交付前运行 [格式校验脚本](skills/multi-repo-impact-review/scripts/validate-impact-json.py)：`python skills/multi-repo-impact-review/scripts/validate-impact-json.py <报告路径>`。
+每次评审同时生成 Markdown 报告与 `impact-report.json`。JSON 根节点直接是 `rawReportContent` 解码后的影响面对象，不含 Kafka 外层字段；格式见 [JSON 模板](skills/multi-repo-impact-review/assets/impact-report.template.json)与 [JSON Schema](skills/multi-repo-impact-review/assets/impact-report.schema.json)。两份报告须依据相同证据，放在被评审源码目录之外；影响、风险、问题和测试建议应逐项对应，详细程度相当。每条测试建议需写明编号、前置条件、操作步骤、预期结果和验证阶段。交付前运行 [格式校验脚本](skills/multi-repo-impact-review/scripts/validate-impact-json.py)：`python skills/multi-repo-impact-review/scripts/validate-impact-json.py <报告路径>`，并双向核对两份报告的内容。
 
 ## 验证
 
